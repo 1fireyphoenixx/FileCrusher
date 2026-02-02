@@ -9,9 +9,18 @@ http:
   bind: "127.0.0.1"
   port: 5132
   tls:
-    # Optional. If omitted, server uses paths stored by `filecrusher setup` in the DB config table.
-    cert_path: ""
-    key_path: ""
+    # TLS certificate used by BOTH:
+    # - the HTTPS Web/Admin server (this port)
+    # - FTPS (explicit TLS)
+    #
+    # If omitted (empty), FileCrusher uses the paths stored by `filecrusher setup`
+    # in the SQLite config table (typically ./data/tls.crt and ./data/tls.key).
+    #
+    # To change the cert:
+    # 1) Point these at your own PEM files and restart the server, OR
+    # 2) Replace the existing ./data/tls.crt and ./data/tls.key files in-place.
+    cert_path: "" # example: "./data/server.crt"
+    key_path: ""  # example: "./data/server.key"
 
 ssh:
   bind: "127.0.0.1"

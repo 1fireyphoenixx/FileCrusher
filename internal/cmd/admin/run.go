@@ -2,9 +2,11 @@ package admin
 
 import (
 	"flag"
+	"fmt"
 
 	"filecrusher/internal/adminapi"
 	"filecrusher/internal/adminui"
+	"filecrusher/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -16,10 +18,16 @@ type Options struct {
 func Run(args []string) error {
 	fs := flag.NewFlagSet("admin", flag.ContinueOnError)
 	var opt Options
+	var showVersion bool
 	fs.StringVar(&opt.Addr, "addr", "https://127.0.0.1:5132", "server address")
 	fs.BoolVar(&opt.TLSInsecure, "insecure", false, "skip TLS verification (recommended only for localhost/self-signed)")
+	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if showVersion {
+		fmt.Printf("filecrusher admin %s\n", version.Version)
+		return nil
 	}
 
 	insecure := opt.TLSInsecure

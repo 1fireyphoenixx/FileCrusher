@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"flag"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"filecrusher/internal/config"
 	"filecrusher/internal/daemon"
+	"filecrusher/internal/version"
 )
 
 type Options struct {
@@ -29,7 +31,9 @@ type Options struct {
 func Run(args []string) error {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	var opt Options
+	var showVersion bool
 	fs.StringVar(&opt.ConfigPath, "config", "", "path to filecrusher.yaml (when set, flags are ignored)")
+	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.StringVar(&opt.DBPath, "db", "./filecrusher.db", "sqlite database path")
 	fs.StringVar(&opt.DataDir, "data-dir", "./data", "data directory (keys/certs)")
 	fs.StringVar(&opt.BindAddr, "bind", "127.0.0.1", "bind address")
@@ -43,6 +47,10 @@ func Run(args []string) error {
 	fs.StringVar(&opt.FTPPublicHost, "ftp-public-host", "", "public IP to advertise in PASV responses")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if showVersion {
+		fmt.Printf("filecrusher server %s\n", version.Version)
+		return nil
 	}
 
 	if opt.ConfigPath != "" {

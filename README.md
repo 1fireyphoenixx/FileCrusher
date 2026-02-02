@@ -23,3 +23,15 @@ cp filecrusher.example.yaml filecrusher.yaml
 Notes:
 - `filecrusher.yaml` is intentionally minimal; most secrets (admin password) are never stored in config.
 - TLS/SSH key paths can be provided in `filecrusher.yaml`, or omitted to use the paths written by `setup` into the sqlite config table.
+
+## Changing TLS certs (HTTPS + FTPS)
+
+FileCrusher uses a single TLS certificate/key pair for:
+- HTTPS Web/Admin on `http.port`
+- FTPS (explicit TLS)
+
+By default, `filecrusher setup` generates a self-signed cert and writes it to your `--data-dir` (typically `./data/tls.crt` and `./data/tls.key`). The SQLite DB stores the file paths.
+
+To change the cert/key:
+1. Config override (recommended): set `http.tls.cert_path` and `http.tls.key_path` in `filecrusher.yaml`, then restart `filecrusher server`.
+2. Replace-in-place: overwrite the existing `./data/tls.crt` and `./data/tls.key` files (or whatever paths your DB points to), then restart.
