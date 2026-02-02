@@ -3,18 +3,27 @@ package webdavserver
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"filecrusher/internal/auth"
 	"filecrusher/internal/db"
 	"golang.org/x/net/webdav"
 )
 
+// RateLimiter abstracts the rate limiting check.
+type RateLimiter interface {
+	Allow(key string) (bool, time.Duration)
+}
+
 type Handler struct {
-	DB     *db.DB
-	Prefix string
-	Logger *slog.Logger
+	DB             *db.DB
+	Prefix         string
+	Logger         *slog.Logger
+	MaxUploadBytes int64
+	Limiter        RateLimiter
 
 	once sync.Once
 	ls   webdav.LockSystem
@@ -31,6 +40,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lg := h.Logger
 	if lg == nil {
 		lg = slog.Default()
+	}
+
+	clientIP := r.RemoteAddr
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		clientIP = strings.Split(fwd, ",")[0]
+	}
+
+	if h.Limiter != nil {
+		if ok, wait := h.Limiter.Allow("webdav:" + clientIP); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	username, password, ok := r.BasicAuth()
@@ -57,6 +79,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="FileCrusher WebDAV"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	if h.MaxUploadBytes > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, h.MaxUploadBytes)
 	}
 
 	lg.Debug("webdav authenticated", "user", username, "method", r.Method, "path", r.URL.Path)

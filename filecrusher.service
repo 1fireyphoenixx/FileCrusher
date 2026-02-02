@@ -1,0 +1,40 @@
+[Unit]
+Description=FileCrusher file sharing server
+After=network.target
+
+[Service]
+Type=simple
+User=filecrusher
+Group=filecrusher
+WorkingDirectory=/opt/filecrusher
+ExecStart=/opt/filecrusher/filecrusher server --config /opt/filecrusher/filecrusher.yaml
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+
+# Allow binding to privileged ports if needed (uncomment if using ports < 1024)
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Read-write access to data directory
+ReadWritePaths=/opt/filecrusher/data
+
+# Limit resources
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

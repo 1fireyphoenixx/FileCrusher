@@ -93,7 +93,13 @@ func (s *Server) ListenAndServeTLS() error {
 		if prefix == "" {
 			prefix = "/webdav"
 		}
-		davHandler := &webdavserver.Handler{DB: s.DB, Prefix: prefix, Logger: s.Logger}
+		davHandler := &webdavserver.Handler{
+			DB:             s.DB,
+			Prefix:         prefix,
+			Logger:         s.Logger,
+			MaxUploadBytes: s.MaxUploadBytes,
+			Limiter:        s.userLimiter,
+		}
 		mux.Handle(prefix+"/", davHandler)
 		s.Logger.Info("webdav enabled", "prefix", prefix)
 	}

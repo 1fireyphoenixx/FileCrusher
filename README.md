@@ -151,3 +151,121 @@ To change the cert/key:
 
 If you generated certs previously and your browser reports `ERR_SSL_VERSION_OR_CIPHER_MISMATCH`, regenerate the self-signed cert with:
 `./filecrusher setup --db ./data/filecrusher.db --data-dir ./data --regen-tls`
+
+## Deployment
+
+### systemd
+
+A sample unit file is provided in `filecrusher.service`. To install:
+
+```bash
+# Create service user
+sudo useradd -r -s /sbin/nologin filecrusher
+
+# Install binary and config
+sudo mkdir -p /opt/filecrusher/data
+sudo cp filecrusher /opt/filecrusher/
+sudo cp filecrusher.yaml /opt/filecrusher/
+sudo chown -R filecrusher:filecrusher /opt/filecrusher
+
+# Run initial setup
+sudo -u filecrusher /opt/filecrusher/filecrusher setup \
+  --db /opt/filecrusher/data/filecrusher.db \
+  --data-dir /opt/filecrusher/data
+
+# Install and enable service
+sudo cp filecrusher.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now filecrusher
+
+# Check status
+sudo systemctl status filecrusher
+sudo journalctl -u filecrusher -f
+```
+
+### Reverse proxy (HAProxy)
+
+FileCrusher serves HTTPS directly but can sit behind a reverse proxy for load balancing, centralized TLS termination, or additional security headers.
+
+**HAProxy example** (`/etc/haproxy/haproxy.cfg`):
+
+```haproxy
+global
+    maxconn 4096
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+    mode http
+    timeout connect 10s
+    timeout client 60s
+    timeout server 60s
+    timeout http-request 10s
+
+frontend https_in
+    bind *:443 ssl crt /etc/haproxy/certs/filecrusher.pem
+    
+    # Security headers (HAProxy adds these; FileCrusher also sets them)
+    http-response set-header X-Content-Type-Options nosniff
+    http-response set-header X-Frame-Options DENY
+    http-response set-header Referrer-Policy no-referrer
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    
+    # Forward to FileCrusher backend
+    default_backend filecrusher
+
+backend filecrusher
+    option httpchk GET /
+    http-check expect status 200
+    
+    # Pass client IP to FileCrusher
+    http-request set-header X-Forwarded-For %[src]
+    http-request set-header X-Forwarded-Proto https
+    
+    # FileCrusher backend (HTTPS passthrough or HTTP if TLS terminated at HAProxy)
+    server fc1 127.0.0.1:5132 ssl verify none check
+```
+
+**Notes:**
+- FileCrusher reads `X-Forwarded-For` for rate limiting when behind a proxy.
+- For SSH/SFTP/FTP protocols, use TCP mode or separate load balancers.
+- If terminating TLS at HAProxy, configure FileCrusher to bind to localhost only.
+
+### Nginx reverse proxy
+
+```nginx
+upstream filecrusher {
+    server 127.0.0.1:5132;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name files.example.com;
+    
+    ssl_certificate /etc/nginx/ssl/cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    
+    # Security headers
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    # Increase for large uploads
+    client_max_body_size 512M;
+    
+    location / {
+        proxy_pass https://filecrusher;
+        proxy_ssl_verify off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebDAV support
+        proxy_pass_request_headers on;
+        proxy_set_header Destination $http_destination;
+    }
+}

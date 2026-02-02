@@ -10,17 +10,23 @@ type bucket struct {
 	resetAt time.Time
 }
 
-// fixedWindowLimiter is a small fixed-window limiter.
-// It is intentionally simple and in-memory.
 type fixedWindowLimiter struct {
 	mu      sync.Mutex
 	win     time.Duration
 	max     int
 	buckets map[string]*bucket
+	stopCh  chan struct{}
 }
 
 func newFixedWindowLimiter(max int, window time.Duration) *fixedWindowLimiter {
-	return &fixedWindowLimiter{win: window, max: max, buckets: make(map[string]*bucket)}
+	l := &fixedWindowLimiter{
+		win:     window,
+		max:     max,
+		buckets: make(map[string]*bucket),
+		stopCh:  make(chan struct{}),
+	}
+	go l.cleanupLoop()
+	return l
 }
 
 func (l *fixedWindowLimiter) Allow(key string) (bool, time.Duration) {
@@ -38,4 +44,32 @@ func (l *fixedWindowLimiter) Allow(key string) (bool, time.Duration) {
 		return true, 0
 	}
 	return false, time.Until(b.resetAt)
+}
+
+func (l *fixedWindowLimiter) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			l.cleanup()
+		case <-l.stopCh:
+			return
+		}
+	}
+}
+
+func (l *fixedWindowLimiter) cleanup() {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for key, b := range l.buckets {
+		if now.After(b.resetAt) {
+			delete(l.buckets, key)
+		}
+	}
+}
+
+func (l *fixedWindowLimiter) Stop() {
+	close(l.stopCh)
 }
