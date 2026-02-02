@@ -26,6 +26,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Server exposes the HTTPS API for users and administrators.
+// It owns rate limiters and shared dependencies like DB and logger.
 type Server struct {
 	DB             *db.DB
 	BindAddr       string
@@ -46,6 +48,7 @@ const (
 	maxJSONBytes = int64(64 << 10) // 64 KiB
 )
 
+// ListenAndServeTLS initializes handlers and starts the HTTPS server.
 func (s *Server) ListenAndServeTLS() error {
 	if s.DB == nil {
 		return errors.New("db is required")
@@ -124,6 +127,7 @@ func (s *Server) ListenAndServeTLS() error {
 	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
 }
 
+// serveIndex serves the embedded admin web UI landing page.
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -138,6 +142,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
+// handleLogin authenticates a user and issues a session cookie.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.Logger.Debug("login start", "remote_ip", clientIP(r))
 	if r.Method != http.MethodPost {
@@ -215,6 +220,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// handleLogout clears a user session cookie.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -228,6 +234,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// handleAdminLogin authenticates an admin and issues an admin cookie.
 func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -285,6 +292,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// handleAdminLogout clears the admin session cookie.
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -297,6 +305,7 @@ func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// withAdmin enforces allowlist, rate limit, and admin authentication.
 func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allowed, err := isAdminAllowedByIP(s.DB, r)
@@ -332,6 +341,7 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// handleAdminAllowlist lists or adds admin IP allowlist entries.
 func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -367,6 +377,7 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleAdminAllowlistByID deletes an allowlist entry by ID.
 func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -389,6 +400,7 @@ func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// handleAdminUsers lists existing users or creates new users.
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -471,6 +483,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleAdminUserByID updates, deletes, or manages a specific user.
 func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/users/")
 	parts := strings.Split(path, "/")
@@ -614,6 +627,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// ctxKey is a typed context key for user metadata.
 type ctxKey string
 
 const (
@@ -621,6 +635,7 @@ const (
 	ctxUserRoot ctxKey = "user_root"
 )
 
+// withUser enforces user authentication and injects user context.
 func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := readSessionCookie(r)
@@ -651,6 +666,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// handleFiles lists directories, creates folders, or deletes paths.
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if r.Method == http.MethodDelete || r.Method == http.MethodPost {
@@ -726,6 +742,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleUpload stores a single uploaded file within the user's root.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -777,6 +794,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// handleDownload serves a file or zips a directory for download.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -806,6 +824,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, local)
 }
 
+// zipBaseName chooses a safe base name for zipped folders.
 func zipBaseName(userPath string) string {
 	p := strings.TrimSpace(userPath)
 	if p == "" || p == "/" {
@@ -822,6 +841,7 @@ func zipBaseName(userPath string) string {
 	return base
 }
 
+// serveZipDir streams a directory as a ZIP archive.
 func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) {
 	if s.Logger == nil {
 		s.Logger = slog.Default()
@@ -909,6 +929,7 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 	})
 }
 
+// readMultipartFile parses and returns the uploaded file for a form field.
 func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		return nil, nil, err
@@ -916,10 +937,12 @@ func readMultipartFile(r *http.Request, field string) (multipart.File, *multipar
 	return r.FormFile(field)
 }
 
+// escapeQuotes strips quotes from a header filename value.
 func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "")
 }
 
+// setSessionCookie writes the user session cookie.
 func setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "fc_session",
@@ -932,6 +955,7 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 	})
 }
 
+// clearSessionCookie deletes the user session cookie.
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "fc_session",
@@ -944,6 +968,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
+// setAdminCookie writes the admin session cookie.
 func setAdminCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "fc_admin",
@@ -956,6 +981,7 @@ func setAdminCookie(w http.ResponseWriter, token string) {
 	})
 }
 
+// clearAdminCookie deletes the admin session cookie.
 func clearAdminCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "fc_admin",
@@ -968,6 +994,7 @@ func clearAdminCookie(w http.ResponseWriter) {
 	})
 }
 
+// readAdminCookie returns the admin session token from cookies.
 func readAdminCookie(r *http.Request) (string, bool) {
 	c, err := r.Cookie("fc_admin")
 	if err != nil {
@@ -979,6 +1006,7 @@ func readAdminCookie(r *http.Request) (string, bool) {
 	return c.Value, true
 }
 
+// readSessionCookie returns the user session token from cookies.
 func readSessionCookie(r *http.Request) (string, bool) {
 	c, err := r.Cookie("fc_session")
 	if err != nil {
@@ -990,12 +1018,14 @@ func readSessionCookie(r *http.Request) (string, bool) {
 	return c.Value, true
 }
 
+// writeJSON sends a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// withSecurityHeaders adds common security headers for browser clients.
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-content-type-options", "nosniff")

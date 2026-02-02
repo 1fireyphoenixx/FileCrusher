@@ -1,3 +1,4 @@
+// Package httpapi tests cover file and download handlers.
 package httpapi
 
 import (
@@ -14,10 +15,12 @@ import (
 	"testing"
 )
 
+// testLogger silences logs during handler tests.
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 }
 
+// TestHandleFiles_Mkdir creates a directory via the files handler.
 func TestHandleFiles_Mkdir(t *testing.T) {
 	tmp := t.TempDir()
 	s := &Server{Logger: testLogger()}
@@ -39,6 +42,7 @@ func TestHandleFiles_Mkdir(t *testing.T) {
 	}
 }
 
+// TestHandleFiles_Mkdir_RefusesRoot rejects creating the root path.
 func TestHandleFiles_Mkdir_RefusesRoot(t *testing.T) {
 	tmp := t.TempDir()
 	s := &Server{Logger: testLogger()}
@@ -53,6 +57,7 @@ func TestHandleFiles_Mkdir_RefusesRoot(t *testing.T) {
 	}
 }
 
+// TestHandleFiles_Mkdir_PathExistsAsFile rejects mkdir on a file.
 func TestHandleFiles_Mkdir_PathExistsAsFile(t *testing.T) {
 	tmp := t.TempDir()
 	s := &Server{Logger: testLogger()}
@@ -71,6 +76,7 @@ func TestHandleFiles_Mkdir_PathExistsAsFile(t *testing.T) {
 	}
 }
 
+// TestHandleDownload_DirectoryZip zips directories and skips symlinks.
 func TestHandleDownload_DirectoryZip(t *testing.T) {
 	tmp := t.TempDir()
 	s := &Server{Logger: testLogger()}
@@ -129,6 +135,7 @@ func TestHandleDownload_DirectoryZip(t *testing.T) {
 	}
 }
 
+// TestHandleDownload_RootZip uses a stable name for root zip downloads.
 func TestHandleDownload_RootZip(t *testing.T) {
 	tmp := t.TempDir()
 	s := &Server{Logger: testLogger()}

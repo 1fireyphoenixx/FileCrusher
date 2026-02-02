@@ -1,3 +1,5 @@
+// Command filecrusher is the main entry point for the CLI binary.
+// It dispatches to subcommands like setup, server, admin, and reset-admin.
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 	"filecrusher/internal/cmd/setup"
 )
 
+// main is the process entry point and forwards to run for testable logic.
 func main() {
 	if err := run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -17,6 +20,8 @@ func main() {
 	}
 }
 
+// run parses argv and invokes the matching subcommand handler.
+// It returns an error for missing or unknown subcommands.
 func run(argv []string) error {
 	if len(argv) < 2 {
 		usage()
@@ -41,6 +46,7 @@ func run(argv []string) error {
 	}
 }
 
+// usage prints the canonical CLI syntax to stderr.
 func usage() {
 	fmt.Fprintln(os.Stderr, "filecrusher <setup|reset-admin|server|admin> [flags]")
 }

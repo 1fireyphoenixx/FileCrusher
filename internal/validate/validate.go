@@ -1,3 +1,4 @@
+// Package validate contains simple input validation helpers.
 package validate
 
 import (
@@ -7,8 +8,10 @@ import (
 	"strings"
 )
 
+// usernameRe enforces a conservative username pattern.
 var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
+// Username validates a username string for length and allowed characters.
 func Username(s string) error {
 	if !usernameRe.MatchString(s) {
 		return errors.New("invalid username")
@@ -16,6 +19,7 @@ func Username(s string) error {
 	return nil
 }
 
+// RootPath validates and normalizes a filesystem root path.
 func RootPath(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("root path is required")

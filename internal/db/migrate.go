@@ -1,3 +1,4 @@
+// Package db contains schema migration helpers for SQLite.
 package db
 
 import (
@@ -14,6 +15,8 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Migrate applies all embedded SQL migrations in lexical order.
+// Each migration is idempotent and tracked by hash in schema_migrations.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -64,11 +67,13 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 	return nil
 }
 
+// migrationID combines filename and content hash for uniqueness.
 func migrationID(name string, body []byte) string {
 	h := sha256.Sum256(body)
 	return name + ":" + hex.EncodeToString(h[:])
 }
 
+// isMigrationApplied checks if a given migration hash is already recorded.
 func isMigrationApplied(ctx context.Context, db *sql.DB, id string) (bool, error) {
 	var v string
 	err := db.QueryRowContext(ctx, "SELECT id FROM schema_migrations WHERE id = ?", id).Scan(&v)
@@ -81,6 +86,8 @@ func isMigrationApplied(ctx context.Context, db *sql.DB, id string) (bool, error
 	return false, err
 }
 
+// applyMigration runs a single migration inside a transaction.
+// It records the migration hash on success.
 func applyMigration(ctx context.Context, db *sql.DB, id string, sqlText string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

@@ -1,3 +1,4 @@
+// Package setup initializes the FileCrusher database and key material.
 package setup
 
 import (
@@ -11,12 +12,15 @@ import (
 	"filecrusher/internal/db"
 )
 
+// ResetAdminOptions controls admin password reset behavior.
 type ResetAdminOptions struct {
 	DBPath           string
 	AdminPassword    string
 	AdminPasswordEnv bool
 }
 
+// ResetAdmin updates the stored admin password hash in the database.
+// It is a local operation and does not require the server to run.
 func ResetAdmin(ctx context.Context, opt ResetAdminOptions) error {
 	if opt.DBPath == "" {
 		return errors.New("db path is required")
@@ -51,6 +55,7 @@ func ResetAdmin(ctx context.Context, opt ResetAdminOptions) error {
 	return d.SetAdminPasswordHash(ctx, h)
 }
 
+// resolveAdminPassword chooses the password source: flag, env, or prompt.
 func resolveAdminPassword(label string, flagValue string, fromEnv bool) (string, error) {
 	if flagValue != "" && fromEnv {
 		return "", errors.New("choose one of --admin-password or --admin-password-env")

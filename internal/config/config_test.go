@@ -1,3 +1,4 @@
+// Package config tests validate config loading behavior.
 package config
 
 import (
@@ -6,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestLoadAppliesDefaults confirms defaults are applied on load.
 func TestLoadAppliesDefaults(t *testing.T) {
 	tmp := t.TempDir()
 	p := filepath.Join(tmp, "filecrusher.yaml")

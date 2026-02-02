@@ -1,3 +1,4 @@
+// Package sftpserver provides SSH-based SFTP and SCP services.
 package sftpserver
 
 import (
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Options configures the SFTP/SCP listener.
 type Options struct {
 	Addr        string
 	DB          *db.DB
@@ -23,6 +25,7 @@ type Options struct {
 	Logger      *slog.Logger
 }
 
+// ListenAndServe starts an SSH server that handles SFTP and SCP.
 func ListenAndServe(ctx context.Context, opt Options) error {
 	if opt.DB == nil {
 		return errors.New("db is required")
@@ -103,6 +106,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	}
 }
 
+// handleConn completes the SSH handshake and serves channels.
 func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn, lg *slog.Logger) {
 	defer netConn.Close()
 	_ = netConn.SetDeadline(time.Now().Add(30 * time.Second))
@@ -169,6 +173,7 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn, lg *slog.Log
 	}
 }
 
+// loadSigner reads and parses the SSH host key file.
 func loadSigner(path string) (ssh.Signer, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -177,6 +182,7 @@ func loadSigner(path string) (ssh.Signer, error) {
 	return ssh.ParsePrivateKey(b)
 }
 
+// intToString converts an int64 to its decimal string form.
 func intToString(v int64) string {
 	return strconv.FormatInt(v, 10)
 }

@@ -1,3 +1,5 @@
+// Package setup initializes the FileCrusher database and key material.
+// It creates admin credentials and generates TLS/SSH keys when needed.
 package setup
 
 import (
@@ -26,6 +28,7 @@ import (
 	"golang.org/x/term"
 )
 
+// Options controls initial setup behavior.
 type Options struct {
 	DBPath  string
 	DataDir string
@@ -37,6 +40,8 @@ type Options struct {
 	RegenTLS bool
 }
 
+// Run performs initial setup for a new deployment.
+// It validates inputs, creates the database, and stores config keys.
 func Run(ctx context.Context, opt Options) error {
 	if opt.DBPath == "" {
 		return errors.New("db path is required")
@@ -107,6 +112,8 @@ func Run(ctx context.Context, opt Options) error {
 	return nil
 }
 
+// promptPassword asks the user for a password with confirmation.
+// It falls back to line input when stdin is not a terminal.
 func promptPassword(label string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
@@ -165,6 +172,8 @@ func promptPassword(label string) (string, error) {
 	}
 }
 
+// ensureTLSCert verifies or generates a TLS cert/key pair.
+// When regen is true, existing files are replaced.
 func ensureTLSCert(certPath, keyPath string, regen bool) error {
 	if !regen && fileExists(certPath) && fileExists(keyPath) {
 		_, err := tls.LoadX509KeyPair(certPath, keyPath)
@@ -223,6 +232,7 @@ func ensureTLSCert(certPath, keyPath string, regen bool) error {
 	return err
 }
 
+// ensureSSHHostKey verifies or generates an SSH host key.
 func ensureSSHHostKey(path string) error {
 	if fileExists(path) {
 		_, err := loadSSHSigner(path)
@@ -247,6 +257,7 @@ func ensureSSHHostKey(path string) error {
 	return err
 }
 
+// loadSSHSigner loads an SSH private key file and parses it.
 func loadSSHSigner(path string) (ssh.Signer, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -255,6 +266,7 @@ func loadSSHSigner(path string) (ssh.Signer, error) {
 	return ssh.ParsePrivateKey(b)
 }
 
+// fileExists reports whether a non-directory file exists.
 func fileExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && !st.IsDir()

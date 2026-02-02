@@ -1,3 +1,4 @@
+// Package scpserver tests validate basic SCP upload/download flows.
 package scpserver
 
 import (
@@ -11,6 +12,7 @@ import (
 	"testing"
 )
 
+// TestSCPUploadSink verifies scp -t upload handling.
 func TestSCPUploadSink(t *testing.T) {
 	root := t.TempDir()
 	server, client := net.Pipe()
@@ -48,6 +50,7 @@ func TestSCPUploadSink(t *testing.T) {
 	}
 }
 
+// TestSCPDownloadSource verifies scp -f download handling.
 func TestSCPDownloadSource(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("abc"), 0o600); err != nil {

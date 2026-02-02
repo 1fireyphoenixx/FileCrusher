@@ -1,3 +1,4 @@
+// Package httpapi exposes the HTTPS API and handlers.
 package httpapi
 
 import (
@@ -9,6 +10,7 @@ import (
 	"filecrusher/internal/db"
 )
 
+// clientIP extracts the remote IP without a port.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -17,6 +19,7 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// isLoopback reports whether a string is a loopback IP.
 func isLoopback(ipStr string) bool {
 	ip := net.ParseIP(strings.TrimSpace(ipStr))
 	if ip == nil {
@@ -25,6 +28,7 @@ func isLoopback(ipStr string) bool {
 	return ip.IsLoopback()
 }
 
+// parseCIDRorIP parses either a CIDR string or a single IP address.
 func parseCIDRorIP(s string) (*net.IPNet, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -49,6 +53,7 @@ func parseCIDRorIP(s string) (*net.IPNet, error) {
 	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
 }
 
+// isAdminAllowedByIP checks the admin allowlist against the caller IP.
 func isAdminAllowedByIP(d *db.DB, r *http.Request) (bool, error) {
 	// Default: allow loopback only unless allowlist has entries.
 	entries, err := d.ListAdminIPAllowlist(r.Context())

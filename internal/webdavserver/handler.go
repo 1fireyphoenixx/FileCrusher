@@ -1,3 +1,4 @@
+// Package webdavserver provides a WebDAV handler backed by FileCrusher users.
 package webdavserver
 
 import (
@@ -18,6 +19,7 @@ type RateLimiter interface {
 	Allow(key string) (bool, time.Duration)
 }
 
+// Handler authenticates users and serves WebDAV requests.
 type Handler struct {
 	DB             *db.DB
 	Prefix         string
@@ -29,6 +31,7 @@ type Handler struct {
 	ls   webdav.LockSystem
 }
 
+// lockSystem lazily initializes the in-memory lock system.
 func (h *Handler) lockSystem() webdav.LockSystem {
 	h.once.Do(func() {
 		h.ls = webdav.NewMemLS()
@@ -36,6 +39,7 @@ func (h *Handler) lockSystem() webdav.LockSystem {
 	return h.ls
 }
 
+// ServeHTTP authenticates the request and proxies to webdav.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lg := h.Logger
 	if lg == nil {

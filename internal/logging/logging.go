@@ -1,3 +1,5 @@
+// Package logging provides simple configuration for slog loggers.
+// It normalizes user log-level strings and sets handler options.
 package logging
 
 import (
@@ -8,6 +10,8 @@ import (
 	"strings"
 )
 
+// ParseLevel normalizes a log level string into slog.Level.
+// Unknown values return slog.LevelInfo with an error.
 func ParseLevel(s string) (slog.Level, error) {
 	s = strings.TrimSpace(strings.ToLower(s))
 	s = strings.ReplaceAll(s, " ", "")
@@ -30,6 +34,8 @@ func ParseLevel(s string) (slog.Level, error) {
 	}
 }
 
+// Options controls logger formatting and defaults.
+// Writer defaults to stderr when not provided.
 type Options struct {
 	Level       string
 	AddSource   bool
@@ -38,6 +44,8 @@ type Options struct {
 	DefaultSlog bool
 }
 
+// New constructs a configured slog.Logger and returns its parsed level.
+// When DefaultSlog is true, slog.SetDefault is called.
 func New(opt Options) (*slog.Logger, slog.Level, error) {
 	level, err := ParseLevel(opt.Level)
 	if err != nil {

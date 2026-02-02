@@ -1,3 +1,4 @@
+// Package db tests verify database CRUD behavior.
 package db
 
 import (
@@ -5,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestUserProtocolFlagsRoundTrip ensures boolean flags survive DB storage.
 func TestUserProtocolFlagsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	d, err := Open(ctx, t.TempDir()+"/test.db")
@@ -29,6 +31,7 @@ func TestUserProtocolFlagsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAdminAllowlistCRUD covers basic allowlist insert/list/delete operations.
 func TestAdminAllowlistCRUD(t *testing.T) {
 	ctx := context.Background()
 	d, err := Open(ctx, t.TempDir()+"/test.db")

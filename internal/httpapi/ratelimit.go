@@ -5,11 +5,13 @@ import (
 	"time"
 )
 
+// bucket tracks request counts for a single key within a window.
 type bucket struct {
 	count   int
 	resetAt time.Time
 }
 
+// fixedWindowLimiter enforces a simple fixed-window rate limit.
 type fixedWindowLimiter struct {
 	mu      sync.Mutex
 	win     time.Duration
@@ -18,6 +20,7 @@ type fixedWindowLimiter struct {
 	stopCh  chan struct{}
 }
 
+// newFixedWindowLimiter creates a limiter and starts its cleanup loop.
 func newFixedWindowLimiter(max int, window time.Duration) *fixedWindowLimiter {
 	l := &fixedWindowLimiter{
 		win:     window,
@@ -29,6 +32,8 @@ func newFixedWindowLimiter(max int, window time.Duration) *fixedWindowLimiter {
 	return l
 }
 
+// Allow records a hit and reports whether the key is still allowed.
+// When denied, it returns the remaining time until reset.
 func (l *fixedWindowLimiter) Allow(key string) (bool, time.Duration) {
 	now := time.Now()
 	l.mu.Lock()
@@ -46,6 +51,7 @@ func (l *fixedWindowLimiter) Allow(key string) (bool, time.Duration) {
 	return false, time.Until(b.resetAt)
 }
 
+// cleanupLoop periodically removes expired buckets to limit memory use.
 func (l *fixedWindowLimiter) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -59,6 +65,7 @@ func (l *fixedWindowLimiter) cleanupLoop() {
 	}
 }
 
+// cleanup deletes buckets whose window has expired.
 func (l *fixedWindowLimiter) cleanup() {
 	now := time.Now()
 	l.mu.Lock()
@@ -70,6 +77,7 @@ func (l *fixedWindowLimiter) cleanup() {
 	}
 }
 
+// Stop halts the background cleanup loop.
 func (l *fixedWindowLimiter) Stop() {
 	close(l.stopCh)
 }

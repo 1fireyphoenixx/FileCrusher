@@ -1,3 +1,5 @@
+// Package config loads and validates FileCrusher YAML configuration.
+// It applies defaults so the daemon can rely on fully populated values.
 package config
 
 import (
@@ -9,6 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config mirrors the filecrusher.yaml schema.
+// Nested fields align with top-level YAML keys.
 type Config struct {
 	Log struct {
 		Level string `yaml:"level"`
@@ -56,6 +60,8 @@ type Config struct {
 	} `yaml:"webdav"`
 }
 
+// Load reads a YAML config file, applies defaults, and validates it.
+// It returns a fully populated Config or a descriptive error.
 func Load(path string) (Config, error) {
 	var c Config
 	if path == "" {
@@ -81,6 +87,8 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 
+// applyDefaults populates zero-values with sane defaults.
+// Defaults match the values described in README and example config.
 func applyDefaults(c *Config) {
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
@@ -123,6 +131,8 @@ func applyDefaults(c *Config) {
 	}
 }
 
+// validate performs basic sanity checks for required fields and ranges.
+// It does not mutate the config.
 func validate(c *Config) error {
 	if strings.TrimSpace(c.Log.Level) == "" {
 		return errors.New("log.level is required")

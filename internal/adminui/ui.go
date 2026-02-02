@@ -1,3 +1,4 @@
+// Package adminui implements the interactive admin TUI using Bubble Tea.
 package adminui
 
 import (
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// state represents the current screen in the admin UI.
 type state int
 
 const (
@@ -23,6 +25,7 @@ const (
 	stateAllowlist
 )
 
+// Model holds all UI state for the admin TUI.
 type Model struct {
 	client *adminapi.Client
 	addr   string
@@ -65,6 +68,7 @@ type Model struct {
 	allowNote    textinput.Model
 }
 
+// New constructs a UI model and initializes inputs and lists.
 func New(client *adminapi.Client, addr string) Model {
 	pass := textinput.New()
 	pass.Placeholder = "Admin password"
@@ -121,6 +125,7 @@ func New(client *adminapi.Client, addr string) Model {
 	return m
 }
 
+// Init returns the initial command for the Bubble Tea runtime.
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -131,6 +136,7 @@ type keysMsg []adminapi.SSHKey
 type allowMsg []adminapi.AdminIPAllowEntry
 type okMsg struct{}
 
+// Update routes messages based on UI state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -284,6 +290,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// View renders the current screen as a string.
 func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString("FileCrusher admin")
@@ -388,6 +395,7 @@ func (a allowItem) Title() string       { return a.CIDR }
 func (a allowItem) Description() string { return a.Note }
 func (a allowItem) FilterValue() string { return a.CIDR }
 
+// selectedUser returns the currently highlighted user list entry.
 func (m *Model) selectedUser() (adminapi.User, bool) {
 	if m.userLst.SelectedItem() == nil {
 		return adminapi.User{}, false
@@ -484,6 +492,7 @@ func deleteKeyCmd(c *adminapi.Client, userID, keyID int64) tea.Cmd {
 	}
 }
 
+// updateNewUser handles input while creating a new user.
 func (m Model) updateNewUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
@@ -551,6 +560,7 @@ func (m Model) updateNewUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateEditUser handles input while editing a user.
 func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	u, ok := m.selectedUser()
 	if !ok {
@@ -598,6 +608,7 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateSetPassword handles input while setting a user password.
 func (m Model) updateSetPassword(msg tea.Msg) (tea.Model, tea.Cmd) {
 	u, ok := m.selectedUser()
 	if !ok {
@@ -627,6 +638,7 @@ func (m Model) updateSetPassword(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateKeys handles input on the SSH keys screen.
 func (m Model) updateKeys(msg tea.Msg) (tea.Model, tea.Cmd) {
 	u, ok := m.selectedUser()
 	if !ok {
@@ -675,6 +687,7 @@ func (m Model) updateKeys(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateAllowlist handles input on the admin allowlist screen.
 func (m Model) updateAllowlist(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {

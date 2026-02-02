@@ -1,3 +1,4 @@
+// Package adminapi provides an HTTP client for the admin API.
 package adminapi
 
 import (
@@ -14,11 +15,13 @@ import (
 	"time"
 )
 
+// Client wraps HTTP calls to the admin API and manages cookies.
 type Client struct {
 	baseURL *url.URL
 	hc      *http.Client
 }
 
+// ClientOptions configures the admin API client.
 type ClientOptions struct {
 	Addr      string
 	Insecure  bool
@@ -26,6 +29,7 @@ type ClientOptions struct {
 	UserAgent string
 }
 
+// NewClient builds a client with optional TLS and timeout settings.
 func NewClient(opt ClientOptions) (*Client, error) {
 	if opt.Addr == "" {
 		return nil, errors.New("addr is required")
@@ -36,6 +40,12 @@ func NewClient(opt ClientOptions) (*Client, error) {
 	}
 	if u.Scheme == "" {
 		u.Scheme = "https"
+	}
+	if !strings.EqualFold(u.Scheme, "https") && !strings.EqualFold(u.Scheme, "http") {
+		return nil, errors.New("invalid scheme")
+	}
+	if u.User != nil {
+		return nil, errors.New("userinfo not allowed")
 	}
 	if u.Host == "" {
 		return nil, errors.New("invalid addr")
@@ -56,6 +66,7 @@ func NewClient(opt ClientOptions) (*Client, error) {
 	return &Client{baseURL: u, hc: hc}, nil
 }
 
+// LoginAdmin authenticates and stores the admin session cookie.
 func (c *Client) LoginAdmin(password string) error {
 	var req struct {
 		Password string `json:"password"`
@@ -64,10 +75,12 @@ func (c *Client) LoginAdmin(password string) error {
 	return c.doJSON("POST", "/api/admin/login", req, nil)
 }
 
+// LogoutAdmin clears the admin session cookie.
 func (c *Client) LogoutAdmin() error {
 	return c.doJSON("POST", "/api/admin/logout", map[string]string{}, nil)
 }
 
+// User mirrors the admin API user representation.
 type User struct {
 	ID          int64  `json:"id"`
 	Username    string `json:"username"`
@@ -80,6 +93,7 @@ type User struct {
 	AllowWebDAV bool   `json:"allow_webdav"`
 }
 
+// ListUsers retrieves all users.
 func (c *Client) ListUsers() ([]User, error) {
 	var resp struct {
 		Users []User `json:"users"`
@@ -90,6 +104,7 @@ func (c *Client) ListUsers() ([]User, error) {
 	return resp.Users, nil
 }
 
+// CreateUser creates a new user and returns its ID.
 func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) (int64, error) {
 	var req struct {
 		Username    string `json:"username"`
@@ -119,6 +134,7 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 	return resp.ID, nil
 }
 
+// UpdateUser updates a user's properties and permissions.
 func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) error {
 	var req struct {
 		RootPath    string `json:"root_path"`
@@ -139,10 +155,12 @@ func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allow
 	return c.doJSON("PUT", "/api/admin/users/"+itoa(id), req, nil)
 }
 
+// DeleteUser removes a user by ID.
 func (c *Client) DeleteUser(id int64) error {
 	return c.doJSON("DELETE", "/api/admin/users/"+itoa(id), nil, nil)
 }
 
+// SetUserPassword updates a user's password.
 func (c *Client) SetUserPassword(id int64, password string) error {
 	var req struct {
 		Password string `json:"password"`
@@ -151,6 +169,7 @@ func (c *Client) SetUserPassword(id int64, password string) error {
 	return c.doJSON("POST", "/api/admin/users/"+itoa(id)+"/password", req, nil)
 }
 
+// SSHKey mirrors the admin API SSH key representation.
 type SSHKey struct {
 	ID          int64  `json:"id"`
 	UserID      int64  `json:"user_id"`
@@ -160,6 +179,7 @@ type SSHKey struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
+// AdminIPAllowEntry mirrors the admin IP allowlist representation.
 type AdminIPAllowEntry struct {
 	ID        int64  `json:"id"`
 	CIDR      string `json:"cidr"`
@@ -167,6 +187,7 @@ type AdminIPAllowEntry struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// ListAdminIPAllowlist retrieves admin IP allowlist entries.
 func (c *Client) ListAdminIPAllowlist() ([]AdminIPAllowEntry, error) {
 	var resp struct {
 		Entries []AdminIPAllowEntry `json:"entries"`
@@ -177,6 +198,7 @@ func (c *Client) ListAdminIPAllowlist() ([]AdminIPAllowEntry, error) {
 	return resp.Entries, nil
 }
 
+// AddAdminIPAllowlist adds a new admin allowlist entry.
 func (c *Client) AddAdminIPAllowlist(cidr, note string) (int64, string, error) {
 	var req struct {
 		CIDR string `json:"cidr"`
@@ -194,10 +216,12 @@ func (c *Client) AddAdminIPAllowlist(cidr, note string) (int64, string, error) {
 	return resp.ID, resp.CIDR, nil
 }
 
+// DeleteAdminIPAllowlist removes an allowlist entry by ID.
 func (c *Client) DeleteAdminIPAllowlist(id int64) error {
 	return c.doJSON("DELETE", "/api/admin/ip-allowlist/"+itoa(id), nil, nil)
 }
 
+// ListKeys returns SSH keys for a user.
 func (c *Client) ListKeys(userID int64) ([]SSHKey, error) {
 	var resp struct {
 		Keys []SSHKey `json:"keys"`
@@ -208,6 +232,7 @@ func (c *Client) ListKeys(userID int64) ([]SSHKey, error) {
 	return resp.Keys, nil
 }
 
+// AddKey adds an SSH key for a user and returns its ID and fingerprint.
 func (c *Client) AddKey(userID int64, publicKey, comment string) (int64, string, error) {
 	var req struct {
 		PublicKey string `json:"public_key"`
@@ -226,10 +251,12 @@ func (c *Client) AddKey(userID int64, publicKey, comment string) (int64, string,
 	return resp.ID, resp.Fingerprint, nil
 }
 
+// DeleteKey removes an SSH key for a user.
 func (c *Client) DeleteKey(userID, keyID int64) error {
 	return c.doJSON("DELETE", "/api/admin/users/"+itoa(userID)+"/keys/"+itoa(keyID), nil, nil)
 }
 
+// doJSON executes an HTTP request and decodes JSON responses.
 func (c *Client) doJSON(method, path string, body any, out any) error {
 	var buf io.Reader
 	if body != nil {
@@ -240,6 +267,9 @@ func (c *Client) doJSON(method, path string, body any, out any) error {
 		buf = bytes.NewReader(b)
 	}
 	u := c.baseURL.ResolveReference(&url.URL{Path: path})
+	if u.Scheme != c.baseURL.Scheme || u.Host != c.baseURL.Host {
+		return errors.New("refusing to change request host")
+	}
 	req, err := http.NewRequest(method, u.String(), buf)
 	if err != nil {
 		return err
@@ -271,6 +301,7 @@ func (c *Client) doJSON(method, path string, body any, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// itoa converts an int64 to string for URL paths.
 func itoa(v int64) string {
 	return strconv.FormatInt(v, 10)
 }

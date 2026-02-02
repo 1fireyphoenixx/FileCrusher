@@ -1,3 +1,4 @@
+// Package sftpserver provides SSH-based SFTP and SCP services.
 package sftpserver
 
 import (
@@ -10,10 +11,12 @@ import (
 	"github.com/pkg/sftp"
 )
 
+// JailedHandlers implements sftp.Handlers with root path jail enforcement.
 type JailedHandlers struct {
 	Root string
 }
 
+// Fileread opens a file for reading within the jailed root.
 func (h JailedHandlers) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	local, err := fsutil.ResolveWithinRoot(h.Root, r.Filepath)
 	if err != nil {
@@ -26,6 +29,7 @@ func (h JailedHandlers) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	return f, nil
 }
 
+// Filewrite opens a file for writing within the jailed root.
 func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	local, err := fsutil.ResolveWithinRoot(h.Root, r.Filepath)
 	if err != nil {
@@ -61,6 +65,7 @@ func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	return f, nil
 }
 
+// Filecmd handles filesystem mutations like rename, mkdir, and remove.
 func (h JailedHandlers) Filecmd(r *sftp.Request) error {
 	local, err := fsutil.ResolveWithinRoot(h.Root, r.Filepath)
 	if err != nil {
@@ -107,6 +112,7 @@ func (h JailedHandlers) Filecmd(r *sftp.Request) error {
 	}
 }
 
+// Filelist lists directories or stats files within the jailed root.
 func (h JailedHandlers) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	local, err := fsutil.ResolveWithinRoot(h.Root, r.Filepath)
 	if err != nil {
@@ -141,8 +147,10 @@ func (h JailedHandlers) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	}
 }
 
+// staticLister wraps a fixed slice of FileInfo for listing.
 type staticLister []os.FileInfo
 
+// ListAt satisfies sftp.ListerAt with slice-based pagination.
 func (l staticLister) ListAt(dst []os.FileInfo, offset int64) (int, error) {
 	if offset < 0 {
 		return 0, io.EOF

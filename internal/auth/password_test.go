@@ -1,7 +1,9 @@
+// Package auth tests cover password hashing/verification.
 package auth
 
 import "testing"
 
+// TestHashAndVerifyPassword validates positive and negative password checks.
 func TestHashAndVerifyPassword(t *testing.T) {
 	h, err := HashPassword("secret", DefaultArgon2Params())
 	if err != nil {

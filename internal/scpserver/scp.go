@@ -1,3 +1,4 @@
+// Package scpserver implements a minimal SCP protocol subset.
 package scpserver
 
 import (
@@ -19,6 +20,7 @@ const (
 	ackFatal byte = 2
 )
 
+// CanHandle reports whether a command is a supported SCP exec invocation.
 func CanHandle(cmd string) bool {
 	op, _, err := parseCommand(cmd)
 	return err == nil && (op == "-t" || op == "-f")
@@ -30,6 +32,7 @@ func CanHandle(cmd string) bool {
 // - scp -f <path> (download from server)
 // Optional flags: -p (ignored)
 // Not supported: -r (recursive)
+// HandleExec handles an SCP exec request over an SSH channel.
 func HandleExec(ch io.ReadWriter, userRoot string, cmd string) error {
 	op, target, err := parseCommand(cmd)
 	if err != nil {
@@ -45,6 +48,7 @@ func HandleExec(ch io.ReadWriter, userRoot string, cmd string) error {
 	}
 }
 
+// parseCommand extracts SCP mode and target path from an exec command.
 func parseCommand(cmd string) (op string, target string, err error) {
 	fields := strings.Fields(cmd)
 	if len(fields) < 3 {
@@ -90,6 +94,7 @@ func parseCommand(cmd string) (op string, target string, err error) {
 	return op, target, nil
 }
 
+// handleSink receives a file upload (scp -t) into the user root.
 func handleSink(rw io.ReadWriter, root, target string) error {
 	// Initial OK.
 	if err := writeAck(rw, ackOK, ""); err != nil {
@@ -184,6 +189,7 @@ func handleSink(rw io.ReadWriter, root, target string) error {
 	}
 }
 
+// handleSource sends a file to the client (scp -f) from the user root.
 func handleSource(rw io.ReadWriter, root, target string) error {
 	br := bufio.NewReader(rw)
 	if err := readAck(br); err != nil {
@@ -225,6 +231,7 @@ func handleSource(rw io.ReadWriter, root, target string) error {
 	return readAck(br)
 }
 
+// parseCLine parses a file metadata line: C<mode> <size> <name>.
 func parseCLine(line string) (mode os.FileMode, size int64, name string, err error) {
 	// C<mode> <size> <name>
 	if len(line) < 2 || line[0] != 'C' {
@@ -249,6 +256,7 @@ func parseCLine(line string) (mode os.FileMode, size int64, name string, err err
 	return os.FileMode(m), sz, name, nil
 }
 
+// readAck reads an ACK byte and returns an error on failure.
 func readAck(r *bufio.Reader) error {
 	b, err := r.ReadByte()
 	if err != nil {
@@ -269,6 +277,7 @@ func readAck(r *bufio.Reader) error {
 	return errors.New("invalid scp ack")
 }
 
+// writeAck writes an ACK byte and optional message.
 func writeAck(w io.Writer, code byte, msg string) error {
 	if code == ackOK {
 		_, err := w.Write([]byte{ackOK})
@@ -281,10 +290,12 @@ func writeAck(w io.Writer, code byte, msg string) error {
 	return err
 }
 
+// hasPathSep guards against path separators in remote filenames.
 func hasPathSep(name string) bool {
 	return strings.ContainsAny(name, "/\\")
 }
 
+// chmodBestEffort applies file permissions but ignores unsupported cases.
 func chmodBestEffort(path string, mode os.FileMode) error {
 	if mode == 0 {
 		return nil

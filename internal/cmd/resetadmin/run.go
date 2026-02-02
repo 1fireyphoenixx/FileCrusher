@@ -1,3 +1,5 @@
+// Package resetadmin implements the "filecrusher reset-admin" CLI subcommand.
+// It resets the admin password directly in the SQLite database.
 package resetadmin
 
 import (
@@ -7,12 +9,16 @@ import (
 	isetup "filecrusher/internal/setup"
 )
 
+// Options captures CLI flags for admin password reset.
+// AdminPassword and AdminPasswordEnv are mutually exclusive by usage.
 type Options struct {
 	DBPath           string
 	AdminPassword    string
 	AdminPasswordEnv bool
 }
 
+// Run parses reset-admin flags and executes the password reset workflow.
+// The reset is local-only and does not require the server to be running.
 func Run(args []string) error {
 	fs := flag.NewFlagSet("reset-admin", flag.ContinueOnError)
 	var opt Options

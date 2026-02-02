@@ -1,3 +1,5 @@
+// Package daemon coordinates all FileCrusher services.
+// It loads config from the database and starts HTTP, SFTP, FTP, and FTPS servers.
 package daemon
 
 import (
@@ -16,6 +18,8 @@ import (
 	ftp "github.com/fclairamb/ftpserverlib"
 )
 
+// Options configures the daemon runtime.
+// Optional TLS/SSH paths override values stored in the database.
 type Options struct {
 	DBPath   string
 	DataDir  string
@@ -42,6 +46,8 @@ type Options struct {
 	WebDAVPrefix string
 }
 
+// Run validates options, loads stored configuration, and starts servers.
+// It blocks until the first server returns an error.
 func Run(ctx context.Context, opt Options) error {
 	if opt.DBPath == "" {
 		return errors.New("db path is required")
@@ -63,7 +69,8 @@ func Run(ctx context.Context, opt Options) error {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if n, err := d.DeleteExpiredSessions(context.Background(), time.Now().Unix()); err == nil {
+				// Periodically prune expired sessions to keep the DB small.
+				if n, err := d.DeleteExpiredSessions(ctx, time.Now().Unix()); err == nil {
 					if n > 0 {
 						lg.Debug("pruned expired sessions", "deleted", n)
 					}
@@ -124,6 +131,7 @@ func Run(ctx context.Context, opt Options) error {
 		WebDAVPrefix:   opt.WebDAVPrefix,
 	}
 
+	// Buffer for HTTP, SFTP, FTP, FTPS.
 	errCh := make(chan error, 4)
 	go func() {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.SFTPPort)
@@ -161,6 +169,8 @@ func Run(ctx context.Context, opt Options) error {
 	return <-errCh
 }
 
+// parsePortRange converts "start-end" into a PortRange.
+// An empty string returns nil to let the FTP server choose ephemeral ports.
 func parsePortRange(s string) (*ftp.PortRange, error) {
 	// Format: start-end. Empty disables range (server chooses ephemeral ports).
 	s = strings.TrimSpace(s)

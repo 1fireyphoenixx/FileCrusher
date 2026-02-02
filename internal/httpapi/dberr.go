@@ -2,6 +2,7 @@ package httpapi
 
 import "strings"
 
+// isRetryableDBErr identifies transient SQLite lock errors.
 func isRetryableDBErr(err error) bool {
 	if err == nil {
 		return false

@@ -1,3 +1,4 @@
+// Package auth provides password hashing and token utilities.
 package auth
 
 import (
@@ -6,6 +7,7 @@ import (
 	"errors"
 )
 
+// NewToken returns a URL-safe random token with at least 16 bytes of entropy.
 func NewToken(nbytes int) (string, error) {
 	if nbytes < 16 {
 		return "", errors.New("token size too small")

@@ -1,3 +1,4 @@
+// Package auth provides password hashing and token utilities.
 package auth
 
 import (
@@ -12,6 +13,8 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
+// Argon2Params describes Argon2id hashing parameters.
+// These values are embedded in the PHC hash string.
 type Argon2Params struct {
 	Memory      uint32
 	Iterations  uint32
@@ -20,6 +23,7 @@ type Argon2Params struct {
 	KeyLen      uint32
 }
 
+// DefaultArgon2Params returns tuned defaults for interactive logins.
 func DefaultArgon2Params() Argon2Params {
 	return Argon2Params{
 		Memory:      64 * 1024,
@@ -53,6 +57,7 @@ func HashPassword(password string, p Argon2Params) (string, error) {
 	), nil
 }
 
+// VerifyPassword checks a plaintext password against a PHC-encoded hash.
 func VerifyPassword(password, encoded string) (bool, error) {
 	if password == "" || encoded == "" {
 		return false, nil
@@ -68,6 +73,7 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	return false, nil
 }
 
+// parsePHC parses an Argon2id PHC string into params, salt, and hash.
 func parsePHC(s string) (Argon2Params, []byte, []byte, error) {
 	// argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
 	parts := strings.Split(s, "$")

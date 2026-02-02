@@ -1,3 +1,4 @@
+// Package fsutil tests validate path traversal protections.
 package fsutil
 
 import (
@@ -7,6 +8,7 @@ import (
 	"testing"
 )
 
+// TestResolveWithinRootRejectsTraversal blocks obvious .. escapes.
 func TestResolveWithinRootRejectsTraversal(t *testing.T) {
 	root := t.TempDir()
 	if _, err := ResolveWithinRoot(root, "../etc/passwd"); err == nil {
@@ -17,6 +19,7 @@ func TestResolveWithinRootRejectsTraversal(t *testing.T) {
 	}
 }
 
+// TestResolveWithinRootRejectsSymlinkEscape blocks symlink-based escapes.
 func TestResolveWithinRootRejectsSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		// Symlink creation may require privileges.

@@ -1,3 +1,5 @@
+// Package fsutil provides filesystem safety helpers.
+// It focuses on preventing path traversal in user-supplied paths.
 package fsutil
 
 import (
@@ -7,10 +9,13 @@ import (
 	"strings"
 )
 
+// ErrPathTraversal indicates a path resolved outside the allowed root.
 var ErrPathTraversal = errors.New("path escapes root")
 
 // ResolveWithinRoot maps a user-provided path to a local filesystem path under root.
 // It rejects any traversal outside root, including via existing symlinks.
+// ResolveWithinRoot maps a user path to a local path inside root.
+// It rejects absolute traversal and symlink escapes.
 func ResolveWithinRoot(root, userPath string) (string, error) {
 	if root == "" {
 		return "", errors.New("root is required")
@@ -52,6 +57,8 @@ func ResolveWithinRoot(root, userPath string) (string, error) {
 	return joined, nil
 }
 
+// hasSymlinkComponent checks for symlinks along the path under root.
+// Any symlink is treated as unsafe for traversal.
 func hasSymlinkComponent(rootAbs, fullPath string) bool {
 	rootAbs = filepath.Clean(rootAbs)
 	fullPath = filepath.Clean(fullPath)
@@ -85,6 +92,7 @@ func hasSymlinkComponent(rootAbs, fullPath string) bool {
 	return false
 }
 
+// isWithin reports whether candidate is equal to or nested under root.
 func isWithin(root, candidate string) bool {
 	root = filepath.Clean(root)
 	candidate = filepath.Clean(candidate)
@@ -98,6 +106,8 @@ func isWithin(root, candidate string) bool {
 	return strings.HasPrefix(candidate, root)
 }
 
+// nearestExisting walks up from p to find the nearest existing path.
+// It returns an empty string for errors or if nothing exists.
 func nearestExisting(p string) string {
 	cur := p
 	for {

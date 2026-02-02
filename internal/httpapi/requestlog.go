@@ -7,17 +7,20 @@ import (
 	"time"
 )
 
+// statusRecorder captures response status and byte count for logging.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
 	bytes  int64
 }
 
+// WriteHeader records the status code before delegating.
 func (w *statusRecorder) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Write captures the status if unset and counts bytes written.
 func (w *statusRecorder) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
@@ -27,16 +30,19 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// Flush forwards flushes when the underlying writer supports it.
 func (w *statusRecorder) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
+// Unwrap returns the underlying ResponseWriter.
 func (w *statusRecorder) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
+// withRequestLog logs request start details and completion metrics.
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -79,6 +85,7 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	})
 }
 
+// levelForStatus maps HTTP status codes to log levels.
 func levelForStatus(code int) slog.Level {
 	if code >= 500 {
 		return slog.LevelError
@@ -92,6 +99,7 @@ func levelForStatus(code int) slog.Level {
 	return slog.LevelInfo
 }
 
+// retryAfterSeconds formats a duration for Retry-After headers.
 func retryAfterSeconds(d time.Duration) string {
 	if d <= 0 {
 		return "0"
@@ -99,6 +107,7 @@ func retryAfterSeconds(d time.Duration) string {
 	return strconv.Itoa(int(d.Seconds()))
 }
 
+// tlsVersionString maps TLS version constants to human strings.
 func tlsVersionString(v uint16) string {
 	switch v {
 	case 0x0301:
@@ -114,6 +123,7 @@ func tlsVersionString(v uint16) string {
 	}
 }
 
+// tlsCipherString returns a friendly cipher name, if desired.
 func tlsCipherString(id uint16) string {
 	// Keep it minimal; debug mode will include the numeric ID in attrs anyway.
 	_ = id

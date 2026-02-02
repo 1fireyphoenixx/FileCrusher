@@ -1,3 +1,4 @@
+// Package ftpserver implements FTP and FTPS servers backed by FileCrusher users.
 package ftpserver
 
 import (
@@ -13,6 +14,7 @@ import (
 	ftp "github.com/fclairamb/ftpserverlib"
 )
 
+// Mode selects FTP vs FTPS behavior.
 type Mode int
 
 const (
@@ -20,6 +22,7 @@ const (
 	ModeFTPS
 )
 
+// Options configures server address, TLS, and feature flags.
 type Options struct {
 	Addr           string
 	DB             *db.DB
@@ -32,6 +35,7 @@ type Options struct {
 	Logger         *slog.Logger
 }
 
+// ListenAndServe starts an FTP or FTPS server until the context is done.
 func ListenAndServe(ctx context.Context, opt Options) error {
 	if opt.DB == nil {
 		return errors.New("db is required")
@@ -64,6 +68,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	return srv.ListenAndServe()
 }
 
+// mainDriver connects ftpserverlib callbacks to FileCrusher storage.
 type mainDriver struct {
 	db          *db.DB
 	mode        Mode
@@ -75,6 +80,7 @@ type mainDriver struct {
 	listener    net.Listener
 }
 
+// GetSettings returns server settings for ftpserverlib.
 func (d *mainDriver) GetSettings() (*ftp.Settings, error) {
 	idle := d.idleTimeout
 	if idle == 0 {
@@ -103,15 +109,18 @@ func (d *mainDriver) GetSettings() (*ftp.Settings, error) {
 	return s, nil
 }
 
+// ClientConnected returns a banner string for new connections.
 func (d *mainDriver) ClientConnected(cc ftp.ClientContext) (string, error) {
 	_ = cc
 	return "FileCrusher ready", nil
 }
 
+// ClientDisconnected is a hook for connection cleanup.
 func (d *mainDriver) ClientDisconnected(cc ftp.ClientContext) {
 	_ = cc
 }
 
+// AuthUser validates credentials and returns a jailed filesystem.
 func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.ClientDriver, error) {
 	ctx := context.Background()
 	u, ok, err := d.db.GetUserByUsername(ctx, user)
@@ -134,6 +143,7 @@ func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.Clie
 	return jailfs.New(u.RootPath), nil
 }
 
+// GetTLSConfig provides TLS settings for FTPS and optional TLS in FTP.
 func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	if d.tlsConfig == nil {
 		// ClearOrEncrypted supports non-TLS clients.
@@ -146,6 +156,7 @@ func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	return c, nil
 }
 
+// PreAuthUser validates user existence and protocol permissions.
 func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
 	ctx := context.Background()
 	u, ok, err := d.db.GetUserByUsername(ctx, user)
@@ -166,5 +177,6 @@ func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
 	return nil
 }
 
+// Compile-time interface assertions.
 var _ ftp.MainDriver = (*mainDriver)(nil)
 var _ ftp.MainDriverExtensionUserVerifier = (*mainDriver)(nil)

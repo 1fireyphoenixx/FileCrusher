@@ -1,3 +1,5 @@
+// Package db wraps SQLite access and schema migrations.
+// It centralizes database configuration and connection health checks.
 package db
 
 import (
@@ -10,10 +12,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// DB wraps a sql.DB and provides higher-level helpers.
 type DB struct {
 	sql *sql.DB
 }
 
+// Open creates a SQLite connection, applies pragmas, and runs migrations.
+// The returned DB is ready for use by other packages.
 func Open(ctx context.Context, path string) (*DB, error) {
 	if path == "" {
 		return nil, errors.New("db path is required")
@@ -47,16 +52,19 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	return db, nil
 }
 
+// Close releases the underlying database connection.
 func (d *DB) Close() error {
 	return d.sql.Close()
 }
 
+// ping verifies the connection is usable within a short timeout.
 func (d *DB) ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	return d.sql.PingContext(ctx)
 }
 
+// setPragmas applies SQLite settings optimized for this service.
 func (d *DB) setPragmas(ctx context.Context) error {
 	// WAL improves read concurrency for web + transfers.
 	_, err := d.sql.ExecContext(ctx, "PRAGMA journal_mode = WAL;")

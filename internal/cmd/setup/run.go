@@ -1,3 +1,5 @@
+// Package setup implements the "filecrusher setup" CLI subcommand.
+// It forwards CLI options to the underlying setup workflow.
 package setup
 
 import (
@@ -7,6 +9,8 @@ import (
 	isetup "filecrusher/internal/setup"
 )
 
+// Options captures CLI flags for initial setup.
+// AdminPassword and AdminPasswordEnv are mutually exclusive by usage.
 type Options struct {
 	DBPath           string
 	DataDir          string
@@ -15,6 +19,8 @@ type Options struct {
 	RegenTLS         bool
 }
 
+// Run parses setup flags and executes the setup workflow.
+// The setup operation initializes the database and key material.
 func Run(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	var opt Options

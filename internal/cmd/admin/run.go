@@ -1,3 +1,5 @@
+// Package admin implements the "filecrusher admin" CLI subcommand.
+// It configures the admin API client and launches the interactive TUI.
 package admin
 
 import (
@@ -11,11 +13,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Options captures CLI flags for the admin client.
+// TLSInsecure is intended for local/self-signed usage only.
 type Options struct {
 	Addr        string
 	TLSInsecure bool
 }
 
+// Run parses flags, initializes logging, and starts the admin UI.
+// It returns any setup or UI runtime errors.
 func Run(args []string) error {
 	fs := flag.NewFlagSet("admin", flag.ContinueOnError)
 	var opt Options

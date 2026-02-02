@@ -1,3 +1,5 @@
+// Package server implements the "filecrusher server" CLI subcommand.
+// It wires command-line flags into daemon options and starts the runtime.
 package server
 
 import (
@@ -13,6 +15,8 @@ import (
 	"filecrusher/internal/version"
 )
 
+// Options captures CLI-only overrides for server startup.
+// When ConfigPath is set, most flags are ignored in favor of the YAML file.
 type Options struct {
 	ConfigPath string
 	LogLevel   string
@@ -32,6 +36,8 @@ type Options struct {
 	WebDAVPrefix    string
 }
 
+// Run parses flags for the server subcommand and starts the daemon.
+// It supports either config-driven startup or pure flag-driven startup.
 func Run(args []string) error {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	var opt Options
@@ -121,6 +127,8 @@ func Run(args []string) error {
 	})
 }
 
+// resolvePath expands relative paths relative to a base directory.
+// Empty values are preserved to allow optional paths.
 func resolvePath(baseDir, p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -132,6 +140,7 @@ func resolvePath(baseDir, p string) string {
 	return filepath.Join(baseDir, p)
 }
 
+// firstNonEmpty returns the first non-empty, trimmed value.
 func firstNonEmpty(a, b string) string {
 	a = strings.TrimSpace(a)
 	if a != "" {
