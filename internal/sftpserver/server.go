@@ -10,6 +10,7 @@ import (
 
 	"filecrusher/internal/auth"
 	"filecrusher/internal/db"
+	"filecrusher/internal/scpserver"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -39,7 +40,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	conf := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
-			if err != nil || !ok || !u.Enabled || !u.AllowSFTP {
+			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
 				return nil, errors.New("invalid credentials")
 			}
 			okPw, err := auth.VerifyPassword(string(pass), u.PassHash)
@@ -50,7 +51,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		},
 		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
-			if err != nil || !ok || !u.Enabled || !u.AllowSFTP {
+			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
 				return nil, errors.New("invalid credentials")
 			}
 			fp := ssh.FingerprintSHA256(key)
@@ -125,11 +126,27 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn) {
 			for req := range reqs {
 				if req.Type == "subsystem" {
 					if len(req.Payload) >= 4 && string(req.Payload[4:]) == "sftp" {
+						if !u.AllowSFTP {
+							_ = req.Reply(false, nil)
+							return
+						}
 						_ = req.Reply(true, nil)
 						h := JailedHandlers{Root: root}
 						s := sftp.NewRequestServer(ch, sftp.Handlers{FileGet: h, FilePut: h, FileCmd: h, FileList: h})
 						_ = s.Serve()
 						return
+					}
+				}
+				if req.Type == "exec" {
+					var payload struct {
+						Command string
+					}
+					if err := ssh.Unmarshal(req.Payload, &payload); err == nil {
+						if u.AllowSCP && scpserver.CanHandle(payload.Command) {
+							_ = req.Reply(true, nil)
+							_ = scpserver.HandleExec(ch, root, payload.Command)
+							return
+						}
 					}
 				}
 				_ = req.Reply(false, nil)

@@ -7,6 +7,9 @@ type User struct {
 	RootPath  string
 	Enabled   bool
 	AllowSFTP bool
+	AllowFTP  bool
+	AllowFTPS bool
+	AllowSCP  bool
 	CreatedAt int64
 	UpdatedAt int64
 }

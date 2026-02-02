@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"filecrusher/internal/cmd/admin"
+	"filecrusher/internal/cmd/resetadmin"
 	"filecrusher/internal/cmd/server"
 	"filecrusher/internal/cmd/setup"
 )
@@ -25,6 +26,8 @@ func run(argv []string) error {
 	switch argv[1] {
 	case "setup":
 		return setup.Run(argv[2:])
+	case "reset-admin":
+		return resetadmin.Run(argv[2:])
 	case "server":
 		return server.Run(argv[2:])
 	case "admin":
@@ -39,5 +42,5 @@ func run(argv []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "filecrusher <setup|server|admin> [flags]")
+	fmt.Fprintln(os.Stderr, "filecrusher <setup|reset-admin|server|admin> [flags]")
 }

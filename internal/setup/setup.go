@@ -27,6 +27,10 @@ import (
 type Options struct {
 	DBPath  string
 	DataDir string
+	// AdminPassword sets the initial admin password non-interactively.
+	AdminPassword string
+	// AdminPasswordEnv reads the initial admin password from FILECRUSHER_ADMIN_PASSWORD.
+	AdminPasswordEnv bool
 }
 
 func Run(ctx context.Context, opt Options) error {
@@ -58,7 +62,7 @@ func Run(ctx context.Context, opt Options) error {
 		return errors.New("already initialized")
 	}
 
-	adminPass, err := promptPassword("Set initial admin password")
+	adminPass, err := resolveAdminPassword("Set initial admin password", opt.AdminPassword, opt.AdminPasswordEnv)
 	if err != nil {
 		return err
 	}

@@ -8,8 +8,10 @@ import (
 )
 
 type Options struct {
-	DBPath  string
-	DataDir string
+	DBPath           string
+	DataDir          string
+	AdminPassword    string
+	AdminPasswordEnv bool
 }
 
 func Run(args []string) error {
@@ -17,12 +19,16 @@ func Run(args []string) error {
 	var opt Options
 	fs.StringVar(&opt.DBPath, "db", "./filecrusher.db", "sqlite database path")
 	fs.StringVar(&opt.DataDir, "data-dir", "./data", "data directory (keys/certs)")
+	fs.StringVar(&opt.AdminPassword, "admin-password", "", "set initial admin password non-interactively")
+	fs.BoolVar(&opt.AdminPasswordEnv, "admin-password-env", false, "read initial admin password from FILECRUSHER_ADMIN_PASSWORD")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	return isetup.Run(context.Background(), isetup.Options{
-		DBPath:  opt.DBPath,
-		DataDir: opt.DataDir,
+		DBPath:           opt.DBPath,
+		DataDir:          opt.DataDir,
+		AdminPassword:    opt.AdminPassword,
+		AdminPasswordEnv: opt.AdminPasswordEnv,
 	})
 }

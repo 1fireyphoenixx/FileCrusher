@@ -34,14 +34,20 @@ type Model struct {
 	users   []adminapi.User
 	userLst list.Model
 
-	newUsername textinput.Model
-	newPassword textinput.Model
-	newRoot     textinput.Model
-	newAllow    bool
+	newUsername  textinput.Model
+	newPassword  textinput.Model
+	newRoot      textinput.Model
+	newAllowSFTP bool
+	newAllowFTP  bool
+	newAllowFTPS bool
+	newAllowSCP  bool
 
-	edRoot  textinput.Model
-	edEn    bool
-	edAllow bool
+	edRoot      textinput.Model
+	edEn        bool
+	edAllowSFTP bool
+	edAllowFTP  bool
+	edAllowFTPS bool
+	edAllowSCP  bool
 
 	setPw textinput.Model
 
@@ -173,7 +179,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.newUsername.SetValue("")
 				m.newPassword.SetValue("")
 				m.newRoot.SetValue("")
-				m.newAllow = true
+				m.newAllowSFTP = true
+				m.newAllowFTP = false
+				m.newAllowFTPS = false
+				m.newAllowSCP = false
 				m.newUsername.Focus()
 				return m, nil
 			case "e":
@@ -185,7 +194,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = ""
 				m.edRoot.SetValue(u.RootPath)
 				m.edEn = u.Enabled
-				m.edAllow = u.AllowSFTP
+				m.edAllowSFTP = u.AllowSFTP
+				m.edAllowFTP = u.AllowFTP
+				m.edAllowFTPS = u.AllowFTPS
+				m.edAllowSCP = u.AllowSCP
 				m.edRoot.Focus()
 				return m, nil
 			case "d":
@@ -255,7 +267,10 @@ func (m Model) View() string {
 		b.WriteString(m.newUsername.View() + "\n")
 		b.WriteString(m.newPassword.View() + "\n")
 		b.WriteString(m.newRoot.View() + "\n")
-		b.WriteString(fmt.Sprintf("Allow SFTP: %v (toggle with a)\n\n", m.newAllow))
+		b.WriteString(fmt.Sprintf("Allow SFTP: %v (toggle with s)\n", m.newAllowSFTP))
+		b.WriteString(fmt.Sprintf("Allow FTP:  %v (toggle with f)\n", m.newAllowFTP))
+		b.WriteString(fmt.Sprintf("Allow FTPS: %v (toggle with t)\n", m.newAllowFTPS))
+		b.WriteString(fmt.Sprintf("Allow SCP:  %v (toggle with c)\n\n", m.newAllowSCP))
 		b.WriteString("Enter=save  esc=back\n")
 	case stateEditUser:
 		u, ok := m.selectedUser()
@@ -264,7 +279,10 @@ func (m Model) View() string {
 		}
 		b.WriteString(m.edRoot.View() + "\n")
 		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with e)\n", m.edEn))
-		b.WriteString(fmt.Sprintf("Allow SFTP: %v (toggle with a)\n\n", m.edAllow))
+		b.WriteString(fmt.Sprintf("Allow SFTP: %v (toggle with s)\n", m.edAllowSFTP))
+		b.WriteString(fmt.Sprintf("Allow FTP:  %v (toggle with f)\n", m.edAllowFTP))
+		b.WriteString(fmt.Sprintf("Allow FTPS: %v (toggle with t)\n", m.edAllowFTPS))
+		b.WriteString(fmt.Sprintf("Allow SCP:  %v (toggle with c)\n\n", m.edAllowSCP))
 		b.WriteString("Enter=save  esc=back\n")
 	case stateSetPassword:
 		u, ok := m.selectedUser()
@@ -296,7 +314,15 @@ type userItem adminapi.User
 
 func (u userItem) Title() string { return u.Username }
 func (u userItem) Description() string {
-	return fmt.Sprintf("root=%s enabled=%v sftp=%v", u.RootPath, u.Enabled, u.AllowSFTP)
+	return fmt.Sprintf(
+		"root=%s enabled=%v sftp=%v ftp=%v ftps=%v scp=%v",
+		u.RootPath,
+		u.Enabled,
+		u.AllowSFTP,
+		u.AllowFTP,
+		u.AllowFTPS,
+		u.AllowSCP,
+	)
 }
 func (u userItem) FilterValue() string { return u.Username }
 
@@ -379,13 +405,30 @@ func (m Model) updateNewUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.st = stateUsers
 			return m, refreshUsersCmd(m.client)
-		case "a":
-			m.newAllow = !m.newAllow
+		case "s":
+			m.newAllowSFTP = !m.newAllowSFTP
+			return m, nil
+		case "f":
+			m.newAllowFTP = !m.newAllowFTP
+			return m, nil
+		case "t":
+			m.newAllowFTPS = !m.newAllowFTPS
+			return m, nil
+		case "c":
+			m.newAllowSCP = !m.newAllowSCP
 			return m, nil
 		case "enter":
 			idCmd := func() tea.Cmd {
 				return func() tea.Msg {
-					_, err := m.client.CreateUser(m.newUsername.Value(), m.newPassword.Value(), m.newRoot.Value(), m.newAllow)
+					_, err := m.client.CreateUser(
+						m.newUsername.Value(),
+						m.newPassword.Value(),
+						m.newRoot.Value(),
+						m.newAllowSFTP,
+						m.newAllowFTP,
+						m.newAllowFTPS,
+						m.newAllowSCP,
+					)
 					if err != nil {
 						return errMsg(err.Error())
 					}
@@ -433,13 +476,22 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			m.edEn = !m.edEn
 			return m, nil
-		case "a":
-			m.edAllow = !m.edAllow
+		case "s":
+			m.edAllowSFTP = !m.edAllowSFTP
+			return m, nil
+		case "f":
+			m.edAllowFTP = !m.edAllowFTP
+			return m, nil
+		case "t":
+			m.edAllowFTPS = !m.edAllowFTPS
+			return m, nil
+		case "c":
+			m.edAllowSCP = !m.edAllowSCP
 			return m, nil
 		case "enter":
 			cmd := func() tea.Cmd {
 				return func() tea.Msg {
-					if err := m.client.UpdateUser(u.ID, m.edRoot.Value(), m.edEn, m.edAllow); err != nil {
+					if err := m.client.UpdateUser(u.ID, m.edRoot.Value(), m.edEn, m.edAllowSFTP, m.edAllowFTP, m.edAllowFTPS, m.edAllowSCP); err != nil {
 						return errMsg(err.Error())
 					}
 					return okMsg{}

@@ -240,6 +240,9 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			RootPath  string `json:"root_path"`
 			Enabled   bool   `json:"enabled"`
 			AllowSFTP bool   `json:"allow_sftp"`
+			AllowFTP  bool   `json:"allow_ftp"`
+			AllowFTPS bool   `json:"allow_ftps"`
+			AllowSCP  bool   `json:"allow_scp"`
 			CreatedAt int64  `json:"created_at"`
 			UpdatedAt int64  `json:"updated_at"`
 		}
@@ -251,6 +254,9 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 				RootPath:  u.RootPath,
 				Enabled:   u.Enabled,
 				AllowSFTP: u.AllowSFTP,
+				AllowFTP:  u.AllowFTP,
+				AllowFTPS: u.AllowFTPS,
+				AllowSCP:  u.AllowSCP,
 				CreatedAt: u.CreatedAt,
 				UpdatedAt: u.UpdatedAt,
 			})
@@ -262,6 +268,9 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			Password  string `json:"password"`
 			RootPath  string `json:"root_path"`
 			AllowSFTP bool   `json:"allow_sftp"`
+			AllowFTP  bool   `json:"allow_ftp"`
+			AllowFTPS bool   `json:"allow_ftps"`
+			AllowSCP  bool   `json:"allow_scp"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -285,7 +294,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
 			return
 		}
-		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP)
+		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "create user failed"})
 			return
@@ -316,6 +325,9 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				RootPath  string `json:"root_path"`
 				Enabled   bool   `json:"enabled"`
 				AllowSFTP bool   `json:"allow_sftp"`
+				AllowFTP  bool   `json:"allow_ftp"`
+				AllowFTPS bool   `json:"allow_ftps"`
+				AllowSCP  bool   `json:"allow_scp"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -326,7 +338,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
-			if err := s.DB.UpdateUser(r.Context(), userID, root, req.Enabled, req.AllowSFTP); err != nil {
+			if err := s.DB.UpdateUser(r.Context(), userID, root, req.Enabled, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
 				return
 			}

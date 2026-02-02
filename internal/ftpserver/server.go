@@ -1,0 +1,165 @@
+package ftpserver
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"net"
+
+	"filecrusher/internal/auth"
+	"filecrusher/internal/db"
+	"filecrusher/internal/jailfs"
+	ftp "github.com/fclairamb/ftpserverlib"
+)
+
+type Mode int
+
+const (
+	ModeFTP Mode = iota + 1
+	ModeFTPS
+)
+
+type Options struct {
+	Addr           string
+	DB             *db.DB
+	Mode           Mode
+	TLSConfig      *tls.Config
+	PassivePorts   *ftp.PortRange
+	PublicHostIP   string
+	DisableMLSD    bool
+	IdleTimeoutSec int
+}
+
+func ListenAndServe(ctx context.Context, opt Options) error {
+	if opt.DB == nil {
+		return errors.New("db is required")
+	}
+	if opt.Addr == "" {
+		return errors.New("addr is required")
+	}
+	if opt.Mode != ModeFTP && opt.Mode != ModeFTPS {
+		return errors.New("invalid mode")
+	}
+	if opt.Mode == ModeFTPS && opt.TLSConfig == nil {
+		return errors.New("tls config is required for FTPS")
+	}
+
+	ln, err := net.Listen("tcp", opt.Addr)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	drv := &mainDriver{db: opt.DB, mode: opt.Mode, tlsConfig: opt.TLSConfig, passive: opt.PassivePorts, publicHost: opt.PublicHostIP, disableMLSD: opt.DisableMLSD, idleTimeout: opt.IdleTimeoutSec, listener: ln}
+	srv := ftp.NewFtpServer(drv)
+	return srv.ListenAndServe()
+}
+
+type mainDriver struct {
+	db          *db.DB
+	mode        Mode
+	tlsConfig   *tls.Config
+	passive     ftp.PasvPortGetter
+	publicHost  string
+	disableMLSD bool
+	idleTimeout int
+	listener    net.Listener
+}
+
+func (d *mainDriver) GetSettings() (*ftp.Settings, error) {
+	idle := d.idleTimeout
+	if idle == 0 {
+		idle = 300
+	}
+
+	tlsReq := ftp.ClearOrEncrypted
+	if d.mode == ModeFTPS {
+		tlsReq = ftp.MandatoryEncryption
+	}
+
+	s := &ftp.Settings{
+		Listener:                 d.listener,
+		ListenAddr:               "",
+		Banner:                   "FileCrusher",
+		PassiveTransferPortRange: d.passive,
+		PublicHost:               d.publicHost,
+		IdleTimeout:              idle,
+		ConnectionTimeout:        15,
+		DisableActiveMode:        true,
+		TLSRequired:              tlsReq,
+		DisableMLSD:              d.disableMLSD,
+		ActiveConnectionsCheck:   ftp.IPMatchRequired,
+		PasvConnectionsCheck:     ftp.IPMatchRequired,
+	}
+	return s, nil
+}
+
+func (d *mainDriver) ClientConnected(cc ftp.ClientContext) (string, error) {
+	_ = cc
+	return "FileCrusher ready", nil
+}
+
+func (d *mainDriver) ClientDisconnected(cc ftp.ClientContext) {
+	_ = cc
+}
+
+func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.ClientDriver, error) {
+	ctx := context.Background()
+	u, ok, err := d.db.GetUserByUsername(ctx, user)
+	if err != nil || !ok || !u.Enabled {
+		return nil, errors.New("invalid credentials")
+	}
+	if d.mode == ModeFTP && !u.AllowFTP {
+		return nil, errors.New("access denied")
+	}
+	if d.mode == ModeFTPS && !u.AllowFTPS {
+		return nil, errors.New("access denied")
+	}
+
+	okPw, err := auth.VerifyPassword(pass, u.PassHash)
+	if err != nil || !okPw {
+		return nil, errors.New("invalid credentials")
+	}
+
+	cc.SetPath("/")
+	return jailfs.New(u.RootPath), nil
+}
+
+func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
+	if d.tlsConfig == nil {
+		// ClearOrEncrypted supports non-TLS clients.
+		return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+	}
+	c := d.tlsConfig.Clone()
+	if c.MinVersion == 0 {
+		c.MinVersion = tls.VersionTLS12
+	}
+	return c, nil
+}
+
+func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
+	ctx := context.Background()
+	u, ok, err := d.db.GetUserByUsername(ctx, user)
+	if err != nil || !ok || !u.Enabled {
+		return errors.New("invalid user")
+	}
+	if d.mode == ModeFTP && !u.AllowFTP {
+		return errors.New("access denied")
+	}
+	if d.mode == ModeFTPS && !u.AllowFTPS {
+		return errors.New("access denied")
+	}
+
+	// Enforce TLS before proceeding in FTPS mode.
+	if d.mode == ModeFTPS {
+		_ = cc.SetTLSRequirement(ftp.MandatoryEncryption)
+	}
+	return nil
+}
+
+var _ ftp.MainDriver = (*mainDriver)(nil)
+var _ ftp.MainDriverExtensionUserVerifier = (*mainDriver)(nil)

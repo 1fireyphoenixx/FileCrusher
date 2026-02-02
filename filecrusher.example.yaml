@@ -1,0 +1,33 @@
+# Minimal runtime config for `filecrusher server --config ./filecrusher.yaml`
+
+db:
+  path: "./data/filecrusher.db"
+
+data_dir: "./data"
+
+http:
+  bind: "127.0.0.1"
+  port: 5132
+  tls:
+    # Optional. If omitted, server uses paths stored by `filecrusher setup` in the DB config table.
+    cert_path: ""
+    key_path: ""
+
+ssh:
+  bind: "127.0.0.1"
+  port: 2022
+  # Optional. If omitted, server uses path stored by `filecrusher setup` in the DB config table.
+  host_key_path: ""
+
+ftp:
+  # Plain FTP is insecure (cleartext creds). Keep disabled unless you truly need it.
+  enable: false
+  port: 2121
+  passive_ports: "50000-50100"
+  public_host: ""
+
+ftps:
+  enable: true
+  port: 2122
+  passive_ports: "50000-50100"
+  public_host: ""

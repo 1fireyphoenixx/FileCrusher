@@ -52,27 +52,27 @@ func (d *DB) SetAdminPasswordHash(ctx context.Context, hash string) error {
 	return d.SetConfig(ctx, "admin_password_hash", hash)
 }
 
-func (d *DB) CreateUser(ctx context.Context, username, passHash, rootPath string, allowSFTP bool) (int64, error) {
+func (d *DB) CreateUser(ctx context.Context, username, passHash, rootPath string, allowSFTP, allowFTP, allowFTPS, allowSCP bool) (int64, error) {
 	if username == "" || passHash == "" || rootPath == "" {
 		return 0, errors.New("username, password hash, and root path are required")
 	}
 	res, err := d.sql.ExecContext(ctx, `
-INSERT INTO users(username, password_hash, root_path, enabled, allow_sftp, created_at, updated_at)
-VALUES(?, ?, ?, 1, ?, ?, ?)
-`, username, passHash, rootPath, boolToInt(allowSFTP), nowUnix(), nowUnix())
+INSERT INTO users(username, password_hash, root_path, enabled, allow_sftp, allow_ftp, allow_ftps, allow_scp, created_at, updated_at)
+VALUES(?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+`, username, passHash, rootPath, boolToInt(allowSFTP), boolToInt(allowFTP), boolToInt(allowFTPS), boolToInt(allowSCP), nowUnix(), nowUnix())
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (d *DB) UpdateUser(ctx context.Context, id int64, rootPath string, enabled, allowSFTP bool) error {
+func (d *DB) UpdateUser(ctx context.Context, id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP bool) error {
 	if id <= 0 {
 		return errors.New("invalid user id")
 	}
 	_, err := d.sql.ExecContext(ctx, `
-UPDATE users SET root_path=?, enabled=?, allow_sftp=?, updated_at=? WHERE id=?
-`, rootPath, boolToInt(enabled), boolToInt(allowSFTP), nowUnix(), id)
+UPDATE users SET root_path=?, enabled=?, allow_sftp=?, allow_ftp=?, allow_ftps=?, allow_scp=?, updated_at=? WHERE id=?
+`, rootPath, boolToInt(enabled), boolToInt(allowSFTP), boolToInt(allowFTP), boolToInt(allowFTPS), boolToInt(allowSCP), nowUnix(), id)
 	return err
 }
 
@@ -97,14 +97,17 @@ func (d *DB) DeleteUser(ctx context.Context, id int64) error {
 
 func (d *DB) GetUserByUsername(ctx context.Context, username string) (*User, bool, error) {
 	var u User
-	var enabled, allowSFTP int
+	var enabled, allowSFTP, allowFTP, allowFTPS, allowSCP int
 	err := d.sql.QueryRowContext(ctx, `
-SELECT id, username, password_hash, root_path, enabled, allow_sftp, created_at, updated_at
+SELECT id, username, password_hash, root_path, enabled, allow_sftp, allow_ftp, allow_ftps, allow_scp, created_at, updated_at
 FROM users WHERE username=?
-`, username).Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &u.CreatedAt, &u.UpdatedAt)
+`, username).Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &allowFTP, &allowFTPS, &allowSCP, &u.CreatedAt, &u.UpdatedAt)
 	if err == nil {
 		u.Enabled = enabled != 0
 		u.AllowSFTP = allowSFTP != 0
+		u.AllowFTP = allowFTP != 0
+		u.AllowFTPS = allowFTPS != 0
+		u.AllowSCP = allowSCP != 0
 		return &u, true, nil
 	}
 	if err == sql.ErrNoRows {
@@ -115,14 +118,17 @@ FROM users WHERE username=?
 
 func (d *DB) GetUserByID(ctx context.Context, id int64) (*User, bool, error) {
 	var u User
-	var enabled, allowSFTP int
+	var enabled, allowSFTP, allowFTP, allowFTPS, allowSCP int
 	err := d.sql.QueryRowContext(ctx, `
-SELECT id, username, password_hash, root_path, enabled, allow_sftp, created_at, updated_at
+SELECT id, username, password_hash, root_path, enabled, allow_sftp, allow_ftp, allow_ftps, allow_scp, created_at, updated_at
 FROM users WHERE id=?
-`, id).Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &u.CreatedAt, &u.UpdatedAt)
+`, id).Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &allowFTP, &allowFTPS, &allowSCP, &u.CreatedAt, &u.UpdatedAt)
 	if err == nil {
 		u.Enabled = enabled != 0
 		u.AllowSFTP = allowSFTP != 0
+		u.AllowFTP = allowFTP != 0
+		u.AllowFTPS = allowFTPS != 0
+		u.AllowSCP = allowSCP != 0
 		return &u, true, nil
 	}
 	if err == sql.ErrNoRows {
@@ -133,7 +139,7 @@ FROM users WHERE id=?
 
 func (d *DB) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := d.sql.QueryContext(ctx, `
-SELECT id, username, password_hash, root_path, enabled, allow_sftp, created_at, updated_at
+SELECT id, username, password_hash, root_path, enabled, allow_sftp, allow_ftp, allow_ftps, allow_scp, created_at, updated_at
 FROM users ORDER BY username ASC
 `)
 	if err != nil {
@@ -144,12 +150,15 @@ FROM users ORDER BY username ASC
 	var out []User
 	for rows.Next() {
 		var u User
-		var enabled, allowSFTP int
-		if err := rows.Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		var enabled, allowSFTP, allowFTP, allowFTPS, allowSCP int
+		if err := rows.Scan(&u.ID, &u.Username, &u.PassHash, &u.RootPath, &enabled, &allowSFTP, &allowFTP, &allowFTPS, &allowSCP, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		u.Enabled = enabled != 0
 		u.AllowSFTP = allowSFTP != 0
+		u.AllowFTP = allowFTP != 0
+		u.AllowFTPS = allowFTPS != 0
+		u.AllowSCP = allowSCP != 0
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {
