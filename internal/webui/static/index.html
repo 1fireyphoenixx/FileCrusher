@@ -31,15 +31,17 @@
 
       <section id="files" class="card" hidden>
         <div class="row">
-          <div class="path" id="cwd"></div>
-          <div class="actions">
-            <label class="btn secondary">
-              Upload
-              <input id="upload" type="file" multiple hidden />
-            </label>
-            <button id="refresh" class="btn secondary" type="button">Refresh</button>
-          </div>
-        </div>
+           <div class="path" id="cwd"></div>
+           <div class="actions">
+             <button id="newFolder" class="btn secondary" type="button">New folder</button>
+             <a id="downloadFolder" class="btn secondary" href="#">Download folder</a>
+             <label class="btn secondary">
+               Upload
+               <input id="upload" type="file" multiple hidden />
+             </label>
+             <button id="refresh" class="btn secondary" type="button">Refresh</button>
+           </div>
+         </div>
 
         <div id="uploads" class="uploads" hidden>
           <div class="uploadsTop">

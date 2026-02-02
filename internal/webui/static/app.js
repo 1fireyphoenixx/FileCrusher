@@ -4,6 +4,9 @@ const loginErr = document.getElementById('loginErr');
 const filesErr = document.getElementById('filesErr');
 const logoutBtn = document.getElementById('logout');
 
+const newFolderBtn = document.getElementById('newFolder');
+const downloadFolderEl = document.getElementById('downloadFolder');
+
 const tbody = document.getElementById('tbody');
 const cwdEl = document.getElementById('cwd');
 const crumbsEl = document.getElementById('crumbs');
@@ -125,6 +128,14 @@ function parentPath(p) {
   return '/' + parts.join('/');
 }
 
+function isValidFolderName(name) {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  if (n === '.' || n === '..') return false;
+  if (n.includes('/') || n.includes('\\')) return false;
+  return true;
+}
+
 function renderCrumbs() {
   crumbsEl.innerHTML = '';
   const parts = cwd.split('/').filter(Boolean);
@@ -154,6 +165,7 @@ async function refresh() {
   setErr(filesErr, '');
   cwdEl.textContent = cwd;
   renderCrumbs();
+  downloadFolderEl.href = `/api/download?path=${encodeURIComponent(cwd)}`;
   tbody.innerHTML = '';
   try {
     const data = await api(`/api/files?path=${encodeURIComponent(cwd)}`);
@@ -209,12 +221,17 @@ async function refresh() {
         openBtn.dataset.act = 'open';
         openBtn.onclick = () => { cwd = joinPath(cwd, name); refresh(); };
 
+        const zipBtn = document.createElement('a');
+        zipBtn.className = 'btn ghost';
+        zipBtn.textContent = 'Zip';
+        zipBtn.href = `/api/download?path=${encodeURIComponent(joinPath(cwd, name))}`;
+
         const delBtn = document.createElement('button');
         delBtn.className = 'btn ghost';
         delBtn.textContent = 'Delete';
         delBtn.dataset.act = 'del';
         delBtn.onclick = async () => {
-          if (!confirm(`Delete ${name}?`)) return;
+          if (!confirm(`Delete folder "${name}" and all contents?`)) return;
           try {
             await api(`/api/files?path=${encodeURIComponent(joinPath(cwd, name))}`, { method: 'DELETE' });
             refresh();
@@ -224,6 +241,8 @@ async function refresh() {
         };
 
         tdAct.appendChild(openBtn);
+        tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(zipBtn);
         tdAct.appendChild(document.createTextNode(' '));
         tdAct.appendChild(delBtn);
       } else {
@@ -290,6 +309,22 @@ document.getElementById('loginForm').addEventListener('submit', async (ev) => {
 });
 
 document.getElementById('refresh').addEventListener('click', refresh);
+
+newFolderBtn.addEventListener('click', async () => {
+  setErr(filesErr, '');
+  const name = prompt('New folder name');
+  if (name == null) return;
+  if (!isValidFolderName(name)) {
+    setErr(filesErr, 'invalid folder name');
+    return;
+  }
+  try {
+    await api(`/api/files?path=${encodeURIComponent(joinPath(cwd, String(name).trim()))}`, { method: 'POST' });
+    refresh();
+  } catch (e) {
+    setErr(filesErr, e.message);
+  }
+});
 
 document.getElementById('upload').addEventListener('change', async (ev) => {
   setErr(filesErr, '');

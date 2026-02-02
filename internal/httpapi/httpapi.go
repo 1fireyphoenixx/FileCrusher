@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -627,10 +629,14 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
-	if r.Method == http.MethodDelete {
+	if r.Method == http.MethodDelete || r.Method == http.MethodPost {
 		p := strings.TrimSpace(path)
 		if p == "" || p == "/" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to delete root"})
+			if r.Method == http.MethodDelete {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to delete root"})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to create root"})
 			return
 		}
 	}
@@ -668,6 +674,23 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"entries": out})
+	case http.MethodPost:
+		if st, err := os.Stat(local); err == nil {
+			if !st.IsDir() {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path exists and is not a directory"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
+			return
+		} else if err != nil && !os.IsNotExist(err) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir failed"})
+			return
+		}
+		if err := os.MkdirAll(local, 0o700); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "mkdir failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 	case http.MethodDelete:
 		if err := os.RemoveAll(local); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
@@ -736,15 +759,20 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := r.Context().Value(ctxUserRoot).(string)
-	path := r.URL.Query().Get("path")
-	local, err := fsutil.ResolveWithinRoot(root, path)
+	userPath := r.URL.Query().Get("path")
+	local, err := fsutil.ResolveWithinRoot(root, userPath)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
 		return
 	}
 	st, err := os.Stat(local)
-	if err != nil || st.IsDir() {
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if st.IsDir() {
+		zipBase := zipBaseName(userPath)
+		s.serveZipDir(w, local, zipBase)
 		return
 	}
 
@@ -752,6 +780,109 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/octet-stream")
 	w.Header().Set("content-disposition", "attachment; filename=\""+escapeQuotes(name)+"\"")
 	http.ServeFile(w, r, local)
+}
+
+func zipBaseName(userPath string) string {
+	p := strings.TrimSpace(userPath)
+	if p == "" || p == "/" {
+		return "root"
+	}
+	// Use URL-path semantics, not OS path semantics.
+	p = "/" + strings.Trim(p, "/")
+	base := pathpkg.Base(p)
+	base = strings.TrimSpace(base)
+	base = strings.Trim(base, "/")
+	if base == "" || base == "." || base == ".." {
+		return "folder"
+	}
+	return base
+}
+
+func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) {
+	if s.Logger == nil {
+		s.Logger = slog.Default()
+	}
+	zipBase = strings.TrimSpace(zipBase)
+	zipBase = strings.Trim(zipBase, "/")
+	if zipBase == "" {
+		zipBase = "folder"
+	}
+	zipFile := zipBase + ".zip"
+
+	w.Header().Set("content-type", "application/zip")
+	w.Header().Set("content-disposition", "attachment; filename=\""+escapeQuotes(zipFile)+"\"")
+
+	zw := zip.NewWriter(w)
+	defer func() { _ = zw.Close() }()
+
+	prefix := zipBase
+	// Ensure empty folders round-trip.
+	_, _ = zw.Create(prefix + "/")
+
+	fsys := os.DirFS(dir)
+	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			s.Logger.Error("zip walk error", "dir", dir, "path", p, "err", err.Error())
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if p == "." {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			// Never follow symlinks when zipping.
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			s.Logger.Error("zip stat error", "dir", dir, "path", p, "err", err.Error())
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		name := filepath.ToSlash(p)
+		name = strings.TrimPrefix(name, "./")
+		if strings.HasPrefix(name, "../") || strings.Contains(name, "/../") {
+			return nil
+		}
+		zipPath := prefix + "/" + name
+
+		if d.IsDir() {
+			hdr, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return nil
+			}
+			hdr.Name = zipPath + "/"
+			hdr.Method = zip.Store
+			_, _ = zw.CreateHeader(hdr)
+			return nil
+		}
+
+		hdr, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return nil
+		}
+		hdr.Name = zipPath
+		hdr.Method = zip.Store
+		wr, err := zw.CreateHeader(hdr)
+		if err != nil {
+			s.Logger.Error("zip create error", "dir", dir, "path", p, "err", err.Error())
+			return nil
+		}
+
+		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(p)))
+		if err != nil {
+			s.Logger.Error("zip open error", "dir", dir, "path", p, "err", err.Error())
+			return nil
+		}
+		defer f.Close()
+		_, _ = io.Copy(wr, f)
+		return nil
+	})
 }
 
 func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
