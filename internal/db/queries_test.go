@@ -28,3 +28,30 @@ func TestUserProtocolFlagsRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected flags: %+v", u)
 	}
 }
+
+func TestAdminAllowlistCRUD(t *testing.T) {
+	ctx := context.Background()
+	d, err := Open(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	id, err := d.AddAdminIPAllowlist(ctx, "127.0.0.1/32", "local")
+	if err != nil {
+		t.Fatalf("AddAdminIPAllowlist: %v", err)
+	}
+	entries, err := d.ListAdminIPAllowlist(ctx)
+	if err != nil {
+		t.Fatalf("ListAdminIPAllowlist: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ID != id {
+		t.Fatalf("unexpected id")
+	}
+	if err := d.DeleteAdminIPAllowlist(ctx, id); err != nil {
+		t.Fatalf("DeleteAdminIPAllowlist: %v", err)
+	}
+}

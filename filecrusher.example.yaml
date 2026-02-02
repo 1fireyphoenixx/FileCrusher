@@ -1,5 +1,10 @@
 # Minimal runtime config for `filecrusher server --config ./filecrusher.yaml`
 
+# Logging
+log:
+  # info | warning | error | debug
+  level: "info"
+
 db:
   path: "./data/filecrusher.db"
 

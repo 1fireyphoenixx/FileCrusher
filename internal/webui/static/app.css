@@ -172,6 +172,81 @@ input {
   min-height: 18px;
 }
 
+.uploads {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: rgba(246, 243, 238, 0.55);
+}
+
+.uploadsTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uploadsTitle {
+  font-weight: 700;
+}
+
+.uploadsSummary {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.uploadsList {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.uploadRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.uploadName {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadMeta {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.bar {
+  grid-column: 1 / -1;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 120ms linear;
+}
+
+.uploadRow.done .barFill {
+  background: linear-gradient(90deg, #2f7d5b, #1f5b42);
+}
+
+.uploadRow.fail .barFill {
+  background: linear-gradient(90deg, #b23b3b, #7a1f1f);
+}
+
 @media (max-width: 640px) {
   .app { padding: 16px; }
   .table th:nth-child(2), .table td:nth-child(2) { display: none; }

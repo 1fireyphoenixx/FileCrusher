@@ -9,11 +9,13 @@ import (
 
 	"filecrusher/internal/config"
 	"filecrusher/internal/daemon"
+	"filecrusher/internal/logging"
 	"filecrusher/internal/version"
 )
 
 type Options struct {
 	ConfigPath string
+	LogLevel   string
 
 	DBPath          string
 	DataDir         string
@@ -34,6 +36,7 @@ func Run(args []string) error {
 	var showVersion bool
 	fs.StringVar(&opt.ConfigPath, "config", "", "path to filecrusher.yaml (when set, flags are ignored)")
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
+	fs.StringVar(&opt.LogLevel, "log-level", "info", "log level: debug|info|warning|error")
 	fs.StringVar(&opt.DBPath, "db", "./filecrusher.db", "sqlite database path")
 	fs.StringVar(&opt.DataDir, "data-dir", "./data", "data directory (keys/certs)")
 	fs.StringVar(&opt.BindAddr, "bind", "127.0.0.1", "bind address")
@@ -59,6 +62,17 @@ func Run(args []string) error {
 			return err
 		}
 		base := filepath.Dir(opt.ConfigPath)
+		lg, _, err := logging.New(logging.Options{Level: c.Log.Level, DefaultSlog: true})
+		if err != nil {
+			return err
+		}
+		// CLI overrides config.
+		if strings.TrimSpace(opt.LogLevel) != "" {
+			lg, _, err = logging.New(logging.Options{Level: opt.LogLevel, DefaultSlog: true})
+			if err != nil {
+				return err
+			}
+		}
 		return daemon.Run(context.Background(), daemon.Options{
 			DBPath:          resolvePath(base, c.DB.Path),
 			DataDir:         resolvePath(base, c.DataDir),
@@ -74,7 +88,12 @@ func Run(args []string) error {
 			TLSCertPath:     resolvePath(base, c.HTTP.TLS.CertPath),
 			TLSKeyPath:      resolvePath(base, c.HTTP.TLS.KeyPath),
 			SSHHostKeyPath:  resolvePath(base, c.SSH.HostKeyPath),
+			Logger:          lg,
 		})
+	}
+	lg, _, err := logging.New(logging.Options{Level: opt.LogLevel, DefaultSlog: true})
+	if err != nil {
+		return err
 	}
 
 	return daemon.Run(context.Background(), daemon.Options{
@@ -89,6 +108,7 @@ func Run(args []string) error {
 		FTPSPort:        opt.FTPSPort,
 		FTPPassivePorts: opt.FTPPassivePorts,
 		FTPPublicHost:   opt.FTPPublicHost,
+		Logger:          lg,
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 
 	"filecrusher/internal/auth"
@@ -28,6 +29,7 @@ type Options struct {
 	PublicHostIP   string
 	DisableMLSD    bool
 	IdleTimeoutSec int
+	Logger         *slog.Logger
 }
 
 func ListenAndServe(ctx context.Context, opt Options) error {
@@ -56,6 +58,9 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 
 	drv := &mainDriver{db: opt.DB, mode: opt.Mode, tlsConfig: opt.TLSConfig, passive: opt.PassivePorts, publicHost: opt.PublicHostIP, disableMLSD: opt.DisableMLSD, idleTimeout: opt.IdleTimeoutSec, listener: ln}
 	srv := ftp.NewFtpServer(drv)
+	if opt.Logger != nil {
+		srv.Logger = opt.Logger
+	}
 	return srv.ListenAndServe()
 }
 

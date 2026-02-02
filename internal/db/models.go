@@ -30,3 +30,10 @@ type Session struct {
 	CreatedAt int64
 	ExpiresAt int64
 }
+
+type AdminIPAllowEntry struct {
+	ID        int64
+	CIDR      string
+	Note      string
+	CreatedAt int64
+}

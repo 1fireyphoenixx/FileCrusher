@@ -255,6 +255,55 @@ func (d *DB) DeleteSession(ctx context.Context, token string) error {
 	return err
 }
 
+func (d *DB) DeleteExpiredSessions(ctx context.Context, nowUnix int64) (int64, error) {
+	res, err := d.sql.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, nowUnix)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (d *DB) ListAdminIPAllowlist(ctx context.Context) ([]AdminIPAllowEntry, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+SELECT id, cidr, COALESCE(note, ''), created_at
+FROM admin_ip_allowlist
+ORDER BY id ASC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AdminIPAllowEntry
+	for rows.Next() {
+		var e AdminIPAllowEntry
+		if err := rows.Scan(&e.ID, &e.CIDR, &e.Note, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) AddAdminIPAllowlist(ctx context.Context, cidr, note string) (int64, error) {
+	if cidr == "" {
+		return 0, errors.New("cidr is required")
+	}
+	res, err := d.sql.ExecContext(ctx, `INSERT INTO admin_ip_allowlist(cidr, note, created_at) VALUES(?, ?, ?)`, cidr, note, nowUnix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (d *DB) DeleteAdminIPAllowlist(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return errors.New("invalid id")
+	}
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM admin_ip_allowlist WHERE id=?`, id)
+	return err
+}
+
 func boolToInt(v bool) int {
 	if v {
 		return 1

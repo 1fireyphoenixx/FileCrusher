@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"filecrusher/internal/db"
 	"filecrusher/internal/ftpserver"
@@ -26,6 +28,8 @@ type Options struct {
 	TLSKeyPath     string
 	SSHHostKeyPath string
 
+	Logger *slog.Logger
+
 	FTPEnable       bool
 	FTPPort         int
 	FTPSEnable      bool
@@ -38,11 +42,31 @@ func Run(ctx context.Context, opt Options) error {
 	if opt.DBPath == "" {
 		return errors.New("db path is required")
 	}
+	lg := opt.Logger
+	if lg == nil {
+		lg = slog.Default()
+	}
 	d, err := db.Open(ctx, opt.DBPath)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n, err := d.DeleteExpiredSessions(context.Background(), time.Now().Unix()); err == nil {
+					if n > 0 {
+						lg.Debug("pruned expired sessions", "deleted", n)
+					}
+				}
+			}
+		}
+	}()
 	initialized, err := d.IsInitialized(ctx)
 	if err != nil {
 		return err
@@ -90,12 +114,13 @@ func Run(ctx context.Context, opt Options) error {
 		Port:     opt.WebPort,
 		CertPath: certPath,
 		KeyPath:  keyPath,
+		Logger:   lg,
 	}
 
 	errCh := make(chan error, 4)
 	go func() {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.SFTPPort)
-		errCh <- sftpserver.ListenAndServe(ctx, sftpserver.Options{Addr: addr, DB: d, HostKeyPath: hostKeyPath})
+		errCh <- sftpserver.ListenAndServe(ctx, sftpserver.Options{Addr: addr, DB: d, HostKeyPath: hostKeyPath, Logger: lg})
 	}()
 	go func() { errCh <- api.ListenAndServeTLS() }()
 
@@ -116,13 +141,13 @@ func Run(ctx context.Context, opt Options) error {
 	if opt.FTPEnable {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.FTPPort)
 		go func() {
-			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTP, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost})
+			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTP, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, Logger: lg})
 		}()
 	}
 	if opt.FTPSEnable {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.FTPSPort)
 		go func() {
-			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPS, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost})
+			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPS, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, Logger: lg})
 		}()
 	}
 

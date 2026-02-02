@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -28,7 +29,16 @@ type Server struct {
 	Port     int
 	CertPath string
 	KeyPath  string
+	Logger   *slog.Logger
+
+	adminLimiter *fixedWindowLimiter
+	userLimiter  *fixedWindowLimiter
 }
+
+const (
+	maxUploadBytes = int64(512 << 20) // 512 MiB
+	maxJSONBytes   = int64(64 << 10)  // 64 KiB
+)
 
 func (s *Server) ListenAndServeTLS() error {
 	if s.DB == nil {
@@ -36,6 +46,15 @@ func (s *Server) ListenAndServeTLS() error {
 	}
 	if s.CertPath == "" || s.KeyPath == "" {
 		return errors.New("tls cert and key are required")
+	}
+	if s.Logger == nil {
+		s.Logger = slog.Default()
+	}
+	if s.adminLimiter == nil {
+		s.adminLimiter = newFixedWindowLimiter(60, 1*time.Minute)
+	}
+	if s.userLimiter == nil {
+		s.userLimiter = newFixedWindowLimiter(120, 1*time.Minute)
 	}
 
 	mux := http.NewServeMux()
@@ -54,17 +73,23 @@ func (s *Server) ListenAndServeTLS() error {
 
 	// Admin API
 	mux.HandleFunc("/api/admin/login", s.handleAdminLogin)
-	mux.HandleFunc("/api/admin/logout", s.handleAdminLogout)
+	mux.HandleFunc("/api/admin/logout", s.withAdmin(s.handleAdminLogout))
 	mux.HandleFunc("/api/admin/users", s.withAdmin(s.handleAdminUsers))
 	mux.HandleFunc("/api/admin/users/", s.withAdmin(s.handleAdminUserByID))
+	mux.HandleFunc("/api/admin/ip-allowlist", s.withAdmin(s.handleAdminAllowlist))
+	mux.HandleFunc("/api/admin/ip-allowlist/", s.withAdmin(s.handleAdminAllowlistByID))
 
 	h := withSecurityHeaders(mux)
+	h = s.withRequestLog(h)
 	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
 
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           h,
+		MaxHeaderBytes:    1 << 20,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -90,7 +115,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	if ok, wait := s.userLimiter.Allow("user_login:" + clientIP(r)); !ok {
+		w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+		return
+	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -156,7 +187,22 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	allowed, err := isAdminAllowedByIP(s.DB, r)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		return
+	}
+	if !allowed {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access denied"})
+		return
+	}
+	if ok, wait := s.adminLimiter.Allow("admin_login:" + clientIP(r)); !ok {
+		w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+		return
+	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
 	var req struct {
 		Password string `json:"password"`
 	}
@@ -207,6 +253,20 @@ func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		allowed, err := isAdminAllowedByIP(s.DB, r)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			return
+		}
+		if !allowed {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access denied"})
+			return
+		}
+		if ok, wait := s.adminLimiter.Allow("admin:" + clientIP(r)); !ok {
+			w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+			return
+		}
 		tok, ok := readAdminCookie(r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
@@ -224,6 +284,63 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.DB.ListAdminIPAllowlist(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
+		var req struct {
+			CIDR string `json:"cidr"`
+			Note string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		n, err := parseCIDRorIP(req.CIDR)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid cidr"})
+			return
+		}
+		id, err := s.DB.AddAdminIPAllowlist(r.Context(), n.String(), strings.TrimSpace(req.Note))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "add failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "cidr": n.String()})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/admin/ip-allowlist/"), "/")
+	if len(parts) < 1 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+	if err := s.DB.DeleteAdminIPAllowlist(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
@@ -486,6 +603,13 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
+	if r.Method == http.MethodDelete {
+		p := strings.TrimSpace(path)
+		if p == "" || p == "/" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to delete root"})
+			return
+		}
+	}
 	root := r.Context().Value(ctxUserRoot).(string)
 	local, err := fsutil.ResolveWithinRoot(root, path)
 	if err != nil {
@@ -536,6 +660,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	root := r.Context().Value(ctxUserRoot).(string)
 	base := r.URL.Query().Get("path")
 	dir, err := fsutil.ResolveWithinRoot(root, base)
@@ -606,7 +731,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
-	if err := r.ParseMultipartForm(128 << 20); err != nil {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		return nil, nil, err
 	}
 	return r.FormFile(field)

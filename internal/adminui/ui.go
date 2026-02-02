@@ -20,6 +20,7 @@ const (
 	stateEditUser
 	stateSetPassword
 	stateKeys
+	stateAllowlist
 )
 
 type Model struct {
@@ -55,6 +56,11 @@ type Model struct {
 	keyLst     list.Model
 	addKey     textinput.Model
 	addComment textinput.Model
+
+	allowEntries []adminapi.AdminIPAllowEntry
+	allowLst     list.Model
+	allowCIDR    textinput.Model
+	allowNote    textinput.Model
 }
 
 func New(client *adminapi.Client, addr string) Model {
@@ -70,7 +76,10 @@ func New(client *adminapi.Client, addr string) Model {
 	keyLst := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	keyLst.Title = "SSH Keys"
 
-	m := Model{client: client, st: stateLogin, pass: pass, userLst: lst, keyLst: keyLst}
+	allowLst := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	allowLst.Title = "Admin IP allowlist"
+
+	m := Model{client: client, st: stateLogin, pass: pass, userLst: lst, keyLst: keyLst, allowLst: allowLst}
 	m.addr = redactAddr(addr)
 
 	m.newUsername = textinput.New()
@@ -100,6 +109,13 @@ func New(client *adminapi.Client, addr string) Model {
 	m.addComment.Placeholder = "optional"
 	m.addComment.Prompt = "Comment: "
 
+	m.allowCIDR = textinput.New()
+	m.allowCIDR.Placeholder = "127.0.0.1 or 10.0.0.0/8"
+	m.allowCIDR.Prompt = "CIDR/IP: "
+	m.allowNote = textinput.New()
+	m.allowNote.Placeholder = "optional"
+	m.allowNote.Prompt = "Note: "
+
 	return m
 }
 
@@ -110,6 +126,7 @@ func (m Model) Init() tea.Cmd {
 type errMsg string
 type usersMsg []adminapi.User
 type keysMsg []adminapi.SSHKey
+type allowMsg []adminapi.AdminIPAllowEntry
 type okMsg struct{}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -117,6 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.userLst.SetSize(msg.Width-4, msg.Height-8)
 		m.keyLst.SetSize(msg.Width-4, msg.Height-10)
+		m.allowLst.SetSize(msg.Width-4, msg.Height-12)
 		return m, nil
 	case errMsg:
 		m.err = string(msg)
@@ -137,6 +155,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items = append(items, keyItem(k))
 		}
 		m.keyLst.SetItems(items)
+		m.err = ""
+		return m, nil
+	case allowMsg:
+		m.allowEntries = []adminapi.AdminIPAllowEntry(msg)
+		items := make([]list.Item, 0, len(m.allowEntries))
+		for _, e := range m.allowEntries {
+			items = append(items, allowItem(e))
+		}
+		m.allowLst.SetItems(items)
 		m.err = ""
 		return m, nil
 	case okMsg:
@@ -227,6 +254,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addComment.SetValue("")
 				m.addKey.Focus()
 				return m, refreshKeysCmd(m.client, u.ID)
+			case "w":
+				m.st = stateAllowlist
+				m.err = ""
+				m.allowCIDR.SetValue("")
+				m.allowNote.SetValue("")
+				m.allowCIDR.Focus()
+				return m, refreshAllowlistCmd(m.client)
 			}
 		}
 		return m, cmd
@@ -239,6 +273,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSetPassword(msg)
 	case stateKeys:
 		return m.updateKeys(msg)
+	case stateAllowlist:
+		return m.updateAllowlist(msg)
 	default:
 		return m, nil
 	}
@@ -261,7 +297,7 @@ func (m Model) View() string {
 	case stateUsers:
 		b.WriteString(m.userLst.View())
 		b.WriteString("\n")
-		b.WriteString("Keys: n=new e=edit d=delete p=set-pass k=keys r=refresh q=quit\n")
+		b.WriteString("Keys: n=new e=edit d=delete p=set-pass k=keys w=allowlist r=refresh q=quit\n")
 	case stateNewUser:
 		b.WriteString("Create user\n\n")
 		b.WriteString(m.newUsername.View() + "\n")
@@ -301,6 +337,13 @@ func (m Model) View() string {
 		b.WriteString(m.addKey.View() + "\n")
 		b.WriteString(m.addComment.View() + "\n")
 		b.WriteString("\nEnter=add key  d=delete selected key  esc=back\n")
+	case stateAllowlist:
+		b.WriteString("Admin IP allowlist\n\n")
+		b.WriteString(m.allowLst.View())
+		b.WriteString("\nAdd entry\n")
+		b.WriteString(m.allowCIDR.View() + "\n")
+		b.WriteString(m.allowNote.View() + "\n")
+		b.WriteString("\nalt+a=add  alt+d=delete selected  esc=back\n")
 	}
 
 	if m.err != "" {
@@ -331,6 +374,12 @@ type keyItem adminapi.SSHKey
 func (k keyItem) Title() string       { return k.Fingerprint }
 func (k keyItem) Description() string { return k.Comment }
 func (k keyItem) FilterValue() string { return k.Fingerprint }
+
+type allowItem adminapi.AdminIPAllowEntry
+
+func (a allowItem) Title() string       { return a.CIDR }
+func (a allowItem) Description() string { return a.Note }
+func (a allowItem) FilterValue() string { return a.CIDR }
 
 func (m *Model) selectedUser() (adminapi.User, bool) {
 	if m.userLst.SelectedItem() == nil {
@@ -377,6 +426,35 @@ func refreshKeysCmd(c *adminapi.Client, userID int64) tea.Cmd {
 			return errMsg(err.Error())
 		}
 		return keysMsg(keys)
+	}
+}
+
+func refreshAllowlistCmd(c *adminapi.Client) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := c.ListAdminIPAllowlist()
+		if err != nil {
+			return errMsg(err.Error())
+		}
+		return allowMsg(entries)
+	}
+}
+
+func addAllowCmd(c *adminapi.Client, cidr, note string) tea.Cmd {
+	return func() tea.Msg {
+		_, _, err := c.AddAdminIPAllowlist(cidr, note)
+		if err != nil {
+			return errMsg(err.Error())
+		}
+		return okMsg{}
+	}
+}
+
+func delAllowCmd(c *adminapi.Client, id int64) tea.Cmd {
+	return func() tea.Msg {
+		if err := c.DeleteAdminIPAllowlist(id); err != nil {
+			return errMsg(err.Error())
+		}
+		return okMsg{}
 	}
 }
 
@@ -580,6 +658,50 @@ func (m Model) updateKeys(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.keyLst, cmd = m.keyLst.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateAllowlist(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			m.st = stateUsers
+			return m, nil
+		case "alt+a":
+			cidr := strings.TrimSpace(m.allowCIDR.Value())
+			note := strings.TrimSpace(m.allowNote.Value())
+			m.allowCIDR.SetValue("")
+			m.allowNote.SetValue("")
+			m.allowCIDR.Focus()
+			return m, tea.Batch(addAllowCmd(m.client, cidr, note), refreshAllowlistCmd(m.client))
+		case "alt+d":
+			if m.allowLst.SelectedItem() == nil {
+				return m, nil
+			}
+			if it, ok := m.allowLst.SelectedItem().(allowItem); ok {
+				e := adminapi.AdminIPAllowEntry(it)
+				return m, tea.Batch(delAllowCmd(m.client, e.ID), refreshAllowlistCmd(m.client))
+			}
+		}
+	}
+
+	var cmd tea.Cmd
+	if m.allowCIDR.Focused() {
+		m.allowCIDR, cmd = m.allowCIDR.Update(msg)
+		if km, ok := msg.(tea.KeyMsg); ok && km.String() == "tab" {
+			m.allowCIDR.Blur()
+			m.allowNote.Focus()
+		}
+		return m, cmd
+	}
+	if m.allowNote.Focused() {
+		m.allowNote, cmd = m.allowNote.Update(msg)
+		if km, ok := msg.(tea.KeyMsg); ok && km.String() == "tab" {
+			m.allowNote.Blur()
+		}
+		return m, cmd
+	}
+	m.allowLst, cmd = m.allowLst.Update(msg)
 	return m, cmd
 }
 

@@ -31,6 +31,11 @@ func ResolveWithinRoot(root, userPath string) (string, error) {
 		return "", ErrPathTraversal
 	}
 
+	// Deny symlink traversal: if any existing component under root is a symlink, reject.
+	if hasSymlinkComponent(rootAbs, joined) {
+		return "", ErrPathTraversal
+	}
+
 	// If any existing segment is a symlink to outside root, block it.
 	existing := nearestExisting(joined)
 	if existing != "" {
@@ -45,6 +50,39 @@ func ResolveWithinRoot(root, userPath string) (string, error) {
 	}
 
 	return joined, nil
+}
+
+func hasSymlinkComponent(rootAbs, fullPath string) bool {
+	rootAbs = filepath.Clean(rootAbs)
+	fullPath = filepath.Clean(fullPath)
+	if !isWithin(rootAbs, fullPath) {
+		return true
+	}
+	rel, err := filepath.Rel(rootAbs, fullPath)
+	if err != nil {
+		return true
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." {
+		return false
+	}
+	cur := rootAbs
+	parts := strings.Split(rel, string(filepath.Separator))
+	for _, p := range parts {
+		if p == "" || p == "." {
+			continue
+		}
+		cur = filepath.Join(cur, p)
+		st, err := os.Lstat(cur)
+		if err != nil {
+			// Component doesn't exist (yet): no symlink to traverse.
+			return false
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func isWithin(root, candidate string) bool {

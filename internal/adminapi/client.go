@@ -155,6 +155,44 @@ type SSHKey struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
+type AdminIPAllowEntry struct {
+	ID        int64  `json:"id"`
+	CIDR      string `json:"cidr"`
+	Note      string `json:"note"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+func (c *Client) ListAdminIPAllowlist() ([]AdminIPAllowEntry, error) {
+	var resp struct {
+		Entries []AdminIPAllowEntry `json:"entries"`
+	}
+	if err := c.doJSON("GET", "/api/admin/ip-allowlist", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Entries, nil
+}
+
+func (c *Client) AddAdminIPAllowlist(cidr, note string) (int64, string, error) {
+	var req struct {
+		CIDR string `json:"cidr"`
+		Note string `json:"note"`
+	}
+	req.CIDR = cidr
+	req.Note = note
+	var resp struct {
+		ID   int64  `json:"id"`
+		CIDR string `json:"cidr"`
+	}
+	if err := c.doJSON("POST", "/api/admin/ip-allowlist", req, &resp); err != nil {
+		return 0, "", err
+	}
+	return resp.ID, resp.CIDR, nil
+}
+
+func (c *Client) DeleteAdminIPAllowlist(id int64) error {
+	return c.doJSON("DELETE", "/api/admin/ip-allowlist/"+itoa(id), nil, nil)
+}
+
 func (c *Client) ListKeys(userID int64) ([]SSHKey, error) {
 	var resp struct {
 		Keys []SSHKey `json:"keys"`

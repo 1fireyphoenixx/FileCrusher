@@ -3,6 +3,7 @@ package sftpserver
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -19,6 +20,7 @@ type Options struct {
 	Addr        string
 	DB          *db.DB
 	HostKeyPath string
+	Logger      *slog.Logger
 }
 
 func ListenAndServe(ctx context.Context, opt Options) error {
@@ -30,6 +32,11 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	}
 	if opt.HostKeyPath == "" {
 		return errors.New("host key path is required")
+	}
+
+	lg := opt.Logger
+	if lg == nil {
+		lg = slog.Default()
 	}
 
 	hostSigner, err := loadSigner(opt.HostKeyPath)
@@ -73,6 +80,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	if err != nil {
 		return err
 	}
+	lg.Info("sftp/scp listening", "addr", opt.Addr)
 	defer ln.Close()
 
 	go func() {
@@ -90,15 +98,17 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 			}
 			return err
 		}
-		go handleConn(opt.DB, conf, c)
+		lg.Debug("ssh connection accepted", "remote", c.RemoteAddr().String())
+		go handleConn(opt.DB, conf, c, lg)
 	}
 }
 
-func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn) {
+func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn, lg *slog.Logger) {
 	defer netConn.Close()
 	_ = netConn.SetDeadline(time.Now().Add(30 * time.Second))
 	serverConn, chans, reqs, err := ssh.NewServerConn(netConn, conf)
 	if err != nil {
+		lg.Warn("ssh handshake failed", "remote", netConn.RemoteAddr().String())
 		return
 	}
 	defer serverConn.Close()
@@ -111,6 +121,7 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn) {
 		return
 	}
 	root := u.RootPath
+	lg.Info("ssh authenticated", "user", u.Username, "remote", serverConn.RemoteAddr().String(), "allow_sftp", u.AllowSFTP, "allow_scp", u.AllowSCP)
 
 	for newCh := range chans {
 		if newCh.ChannelType() != "session" {
@@ -127,9 +138,11 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn) {
 				if req.Type == "subsystem" {
 					if len(req.Payload) >= 4 && string(req.Payload[4:]) == "sftp" {
 						if !u.AllowSFTP {
+							lg.Warn("sftp denied", "user", u.Username)
 							_ = req.Reply(false, nil)
 							return
 						}
+						lg.Debug("sftp start", "user", u.Username)
 						_ = req.Reply(true, nil)
 						h := JailedHandlers{Root: root}
 						s := sftp.NewRequestServer(ch, sftp.Handlers{FileGet: h, FilePut: h, FileCmd: h, FileList: h})
@@ -143,6 +156,7 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn) {
 					}
 					if err := ssh.Unmarshal(req.Payload, &payload); err == nil {
 						if u.AllowSCP && scpserver.CanHandle(payload.Command) {
+							lg.Debug("scp exec", "user", u.Username, "cmd", payload.Command)
 							_ = req.Reply(true, nil)
 							_ = scpserver.HandleExec(ch, root, payload.Command)
 							return

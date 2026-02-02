@@ -10,6 +10,10 @@ import (
 )
 
 type Config struct {
+	Log struct {
+		Level string `yaml:"level"`
+	} `yaml:"log"`
+
 	DB struct {
 		Path string `yaml:"path"`
 	} `yaml:"db"`
@@ -72,6 +76,9 @@ func Load(path string) (Config, error) {
 }
 
 func applyDefaults(c *Config) {
+	if c.Log.Level == "" {
+		c.Log.Level = "info"
+	}
 	if c.DB.Path == "" {
 		c.DB.Path = "./data/filecrusher.db"
 	}
@@ -105,6 +112,9 @@ func applyDefaults(c *Config) {
 }
 
 func validate(c *Config) error {
+	if strings.TrimSpace(c.Log.Level) == "" {
+		return errors.New("log.level is required")
+	}
 	if c.DB.Path == "" {
 		return errors.New("db.path is required")
 	}

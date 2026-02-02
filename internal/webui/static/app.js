@@ -8,6 +8,10 @@ const tbody = document.getElementById('tbody');
 const cwdEl = document.getElementById('cwd');
 const crumbsEl = document.getElementById('crumbs');
 
+const uploadsEl = document.getElementById('uploads');
+const uploadsListEl = document.getElementById('uploadsList');
+const uploadsSummaryEl = document.getElementById('uploadsSummary');
+
 let cwd = '/';
 
 function fmtBytes(n) {
@@ -24,6 +28,74 @@ function fmtBytes(n) {
 
 function setErr(el, msg) {
   el.textContent = msg || '';
+}
+
+function setUploadsVisible(v) {
+  uploadsEl.hidden = !v;
+  if (!v) {
+    uploadsListEl.innerHTML = '';
+    uploadsSummaryEl.textContent = '';
+  }
+}
+
+function makeUploadRow(file) {
+  const row = document.createElement('div');
+  row.className = 'uploadRow';
+
+  const name = document.createElement('div');
+  name.className = 'uploadName';
+  name.textContent = file.name;
+
+  const meta = document.createElement('div');
+  meta.className = 'uploadMeta';
+  meta.textContent = `0% (${fmtBytes(0)} / ${fmtBytes(file.size)})`;
+
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  const fill = document.createElement('div');
+  fill.className = 'barFill';
+  bar.appendChild(fill);
+
+  row.appendChild(name);
+  row.appendChild(meta);
+  row.appendChild(bar);
+
+  return { row, fill, meta };
+}
+
+function uploadWithProgress(file, destPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/upload?path=${encodeURIComponent(destPath)}`, true);
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      onProgress(ev.loaded, ev.total);
+    };
+
+    xhr.onerror = () => reject(new Error('upload failed'));
+    xhr.onabort = () => reject(new Error('upload aborted'));
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      try {
+        const j = JSON.parse(xhr.responseText || '{}');
+        if (j && j.error) {
+          reject(new Error(j.error));
+          return;
+        }
+      } catch (_) {}
+      reject(new Error(`HTTP ${xhr.status}`));
+    };
+
+    const form = new FormData();
+    form.append('file', file, file.name);
+    xhr.send(form);
+  });
 }
 
 async function api(path, opts) {
@@ -88,32 +160,60 @@ async function refresh() {
     const entries = data.entries || [];
     if (cwd !== '/') {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td><span class="name"><span class="tag">..</span></span></td><td></td><td></td><td></td>`;
+      const td = document.createElement('td');
+      const wrap = document.createElement('span');
+      wrap.className = 'name';
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = '..';
+      wrap.appendChild(tag);
+      td.appendChild(wrap);
+      tr.appendChild(td);
+      tr.appendChild(document.createElement('td'));
+      tr.appendChild(document.createElement('td'));
+      tr.appendChild(document.createElement('td'));
       tr.onclick = () => { cwd = parentPath(cwd); refresh(); };
       tbody.appendChild(tr);
     }
     for (const e of entries) {
       const tr = document.createElement('tr');
-      const tag = e.is_dir ? '<span class="tag">dir</span>' : '';
       const name = e.name;
       const size = e.is_dir ? '' : fmtBytes(e.size);
       const mod = e.mod_time ? new Date(e.mod_time * 1000).toLocaleString() : '';
-      const actions = e.is_dir
-        ? `<button class="btn ghost" data-act="open">Open</button> <button class="btn ghost" data-act="del">Delete</button>`
-        : `<a class="btn ghost" href="/api/download?path=${encodeURIComponent(joinPath(cwd, name))}">Download</a> <button class="btn ghost" data-act="del">Delete</button>`;
 
-      tr.innerHTML = `<td><span class="name">${tag}<span>${name}</span></span></td><td>${size}</td><td>${mod}</td><td>${actions}</td>`;
-      tr.addEventListener('click', (ev) => {
-        const btn = ev.target && ev.target.dataset && ev.target.dataset.act;
-        if (!btn) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-      });
-      tr.querySelectorAll('[data-act="open"]').forEach((b) => {
-        b.onclick = () => { cwd = joinPath(cwd, name); refresh(); };
-      });
-      tr.querySelectorAll('[data-act="del"]').forEach((b) => {
-        b.onclick = async () => {
+      // Avoid innerHTML with untrusted filename.
+      const tdName = document.createElement('td');
+      const nameWrap = document.createElement('span');
+      nameWrap.className = 'name';
+      if (e.is_dir) {
+        const t = document.createElement('span');
+        t.className = 'tag';
+        t.textContent = 'dir';
+        nameWrap.appendChild(t);
+      }
+      const nameText = document.createElement('span');
+      nameText.textContent = name;
+      nameWrap.appendChild(nameText);
+      tdName.appendChild(nameWrap);
+
+      const tdSize = document.createElement('td');
+      tdSize.textContent = size;
+      const tdMod = document.createElement('td');
+      tdMod.textContent = mod;
+      const tdAct = document.createElement('td');
+
+      if (e.is_dir) {
+        const openBtn = document.createElement('button');
+        openBtn.className = 'btn ghost';
+        openBtn.textContent = 'Open';
+        openBtn.dataset.act = 'open';
+        openBtn.onclick = () => { cwd = joinPath(cwd, name); refresh(); };
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn ghost';
+        delBtn.textContent = 'Delete';
+        delBtn.dataset.act = 'del';
+        delBtn.onclick = async () => {
           if (!confirm(`Delete ${name}?`)) return;
           try {
             await api(`/api/files?path=${encodeURIComponent(joinPath(cwd, name))}`, { method: 'DELETE' });
@@ -122,6 +222,44 @@ async function refresh() {
             setErr(filesErr, e.message);
           }
         };
+
+        tdAct.appendChild(openBtn);
+        tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(delBtn);
+      } else {
+        const dl = document.createElement('a');
+        dl.className = 'btn ghost';
+        dl.textContent = 'Download';
+        dl.href = `/api/download?path=${encodeURIComponent(joinPath(cwd, name))}`;
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn ghost';
+        delBtn.textContent = 'Delete';
+        delBtn.dataset.act = 'del';
+        delBtn.onclick = async () => {
+          if (!confirm(`Delete ${name}?`)) return;
+          try {
+            await api(`/api/files?path=${encodeURIComponent(joinPath(cwd, name))}`, { method: 'DELETE' });
+            refresh();
+          } catch (e) {
+            setErr(filesErr, e.message);
+          }
+        };
+
+        tdAct.appendChild(dl);
+        tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(delBtn);
+      }
+
+      tr.appendChild(tdName);
+      tr.appendChild(tdSize);
+      tr.appendChild(tdMod);
+      tr.appendChild(tdAct);
+      tr.addEventListener('click', (ev) => {
+        const btn = ev.target && ev.target.dataset && ev.target.dataset.act;
+        if (!btn) return;
+        ev.preventDefault();
+        ev.stopPropagation();
       });
       tbody.appendChild(tr);
     }
@@ -158,11 +296,49 @@ document.getElementById('upload').addEventListener('change', async (ev) => {
   const files = ev.target.files;
   if (!files || files.length === 0) return;
   try {
-    for (const f of files) {
-      const form = new FormData();
-      form.append('file', f, f.name);
-      await api(`/api/upload?path=${encodeURIComponent(cwd)}`, { method: 'POST', body: form });
+    setUploadsVisible(true);
+    uploadsListEl.innerHTML = '';
+
+    const list = Array.from(files);
+    const totalBytes = list.reduce((acc, f) => acc + (f.size || 0), 0);
+    let doneBytes = 0;
+    let okCount = 0;
+    let failCount = 0;
+
+    const updateSummary = (activeName, activePct) => {
+      const overall = totalBytes > 0 ? Math.min(100, Math.round(((doneBytes) / totalBytes) * 100)) : 0;
+      const active = activeName ? `Uploading ${activeName} (${activePct}%)` : 'Uploads complete';
+      uploadsSummaryEl.textContent = `${active} · ${overall}% overall · ${okCount} ok · ${failCount} failed`;
+    };
+
+    for (const f of list) {
+      const ui = makeUploadRow(f);
+      uploadsListEl.appendChild(ui.row);
+      updateSummary(f.name, 0);
+
+      let lastLoaded = 0;
+      try {
+        await uploadWithProgress(f, cwd, (loaded, total) => {
+          lastLoaded = loaded;
+          const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+          ui.fill.style.width = `${pct}%`;
+          ui.meta.textContent = `${pct}% (${fmtBytes(loaded)} / ${fmtBytes(total)})`;
+          updateSummary(f.name, pct);
+        });
+        doneBytes += f.size || lastLoaded || 0;
+        okCount += 1;
+        ui.row.classList.add('done');
+        ui.fill.style.width = '100%';
+        ui.meta.textContent = `100% (${fmtBytes(f.size)} / ${fmtBytes(f.size)})`;
+      } catch (e) {
+        doneBytes += f.size || lastLoaded || 0;
+        failCount += 1;
+        ui.row.classList.add('fail');
+        ui.meta.textContent = `failed (${e.message})`;
+      }
     }
+
+    updateSummary(null, 100);
     ev.target.value = '';
     refresh();
   } catch (e) {
