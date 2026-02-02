@@ -19,6 +19,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if c.HTTP.Port != 5132 {
 		t.Fatalf("expected default http.port 5132, got %d", c.HTTP.Port)
 	}
+	if c.HTTP.MaxUploadMB != 512 {
+		t.Fatalf("expected default http.max_upload_mb 512, got %d", c.HTTP.MaxUploadMB)
+	}
 	if c.SSH.Port != 2022 {
 		t.Fatalf("expected default ssh.port 2022, got %d", c.SSH.Port)
 	}

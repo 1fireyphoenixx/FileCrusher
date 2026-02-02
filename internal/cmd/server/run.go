@@ -79,6 +79,7 @@ func Run(args []string) error {
 			BindAddr:        c.HTTP.Bind,
 			WebPort:         c.HTTP.Port,
 			SFTPPort:        c.SSH.Port,
+			MaxUploadBytes:  int64(c.HTTP.MaxUploadMB) << 20,
 			FTPEnable:       c.FTP.Enable,
 			FTPPort:         c.FTP.Port,
 			FTPSEnable:      c.FTPS.Enable,

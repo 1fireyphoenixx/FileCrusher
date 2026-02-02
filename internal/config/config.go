@@ -21,9 +21,10 @@ type Config struct {
 	DataDir string `yaml:"data_dir"`
 
 	HTTP struct {
-		Bind string `yaml:"bind"`
-		Port int    `yaml:"port"`
-		TLS  struct {
+		Bind        string `yaml:"bind"`
+		Port        int    `yaml:"port"`
+		MaxUploadMB int    `yaml:"max_upload_mb"`
+		TLS         struct {
 			CertPath string `yaml:"cert_path"`
 			KeyPath  string `yaml:"key_path"`
 		} `yaml:"tls"`
@@ -91,6 +92,9 @@ func applyDefaults(c *Config) {
 	if c.HTTP.Port == 0 {
 		c.HTTP.Port = 5132
 	}
+	if c.HTTP.MaxUploadMB == 0 {
+		c.HTTP.MaxUploadMB = 512
+	}
 	if c.SSH.Bind == "" {
 		c.SSH.Bind = c.HTTP.Bind
 	}
@@ -123,6 +127,9 @@ func validate(c *Config) error {
 	}
 	if c.HTTP.Port <= 0 || c.HTTP.Port > 65535 {
 		return errors.New("http.port is invalid")
+	}
+	if c.HTTP.MaxUploadMB < 1 || c.HTTP.MaxUploadMB > 102400 {
+		return errors.New("http.max_upload_mb is invalid")
 	}
 	if c.SSH.Port <= 0 || c.SSH.Port > 65535 {
 		return errors.New("ssh.port is invalid")

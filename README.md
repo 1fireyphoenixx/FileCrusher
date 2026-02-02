@@ -37,6 +37,7 @@ data_dir: "./data"
 http:
   bind: "127.0.0.1"
   port: 5132
+  max_upload_mb: 512
   tls:
     # Optional. If empty, server uses paths stored by `filecrusher setup` in sqlite.
     cert_path: ""
@@ -109,7 +110,7 @@ Defaults:
 
 ## Security behavior
 
-- Upload limit: 512 MiB per request.
+- Upload limit: configurable via `http.max_upload_mb` (default 512 MiB) per request.
 - JSON body limit: 64 KiB.
 - Web delete safety: refuses `DELETE` of `/` (user root).
 - Rate limiting:

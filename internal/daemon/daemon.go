@@ -28,7 +28,8 @@ type Options struct {
 	TLSKeyPath     string
 	SSHHostKeyPath string
 
-	Logger *slog.Logger
+	Logger         *slog.Logger
+	MaxUploadBytes int64
 
 	FTPEnable       bool
 	FTPPort         int
@@ -109,12 +110,13 @@ func Run(ctx context.Context, opt Options) error {
 	}
 
 	api := &httpapi.Server{
-		DB:       d,
-		BindAddr: opt.BindAddr,
-		Port:     opt.WebPort,
-		CertPath: certPath,
-		KeyPath:  keyPath,
-		Logger:   lg,
+		DB:             d,
+		BindAddr:       opt.BindAddr,
+		Port:           opt.WebPort,
+		CertPath:       certPath,
+		KeyPath:        keyPath,
+		Logger:         lg,
+		MaxUploadBytes: opt.MaxUploadBytes,
 	}
 
 	errCh := make(chan error, 4)

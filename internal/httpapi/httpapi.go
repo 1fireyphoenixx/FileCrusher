@@ -24,20 +24,20 @@ import (
 )
 
 type Server struct {
-	DB       *db.DB
-	BindAddr string
-	Port     int
-	CertPath string
-	KeyPath  string
-	Logger   *slog.Logger
+	DB             *db.DB
+	BindAddr       string
+	Port           int
+	CertPath       string
+	KeyPath        string
+	Logger         *slog.Logger
+	MaxUploadBytes int64
 
 	adminLimiter *fixedWindowLimiter
 	userLimiter  *fixedWindowLimiter
 }
 
 const (
-	maxUploadBytes = int64(512 << 20) // 512 MiB
-	maxJSONBytes   = int64(64 << 10)  // 64 KiB
+	maxJSONBytes = int64(64 << 10) // 64 KiB
 )
 
 func (s *Server) ListenAndServeTLS() error {
@@ -49,6 +49,9 @@ func (s *Server) ListenAndServeTLS() error {
 	}
 	if s.Logger == nil {
 		s.Logger = slog.Default()
+	}
+	if s.MaxUploadBytes == 0 {
+		s.MaxUploadBytes = int64(512 << 20)
 	}
 	if s.adminLimiter == nil {
 		s.adminLimiter = newFixedWindowLimiter(60, 1*time.Minute)
@@ -660,7 +663,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.MaxUploadBytes)
 	root := r.Context().Value(ctxUserRoot).(string)
 	base := r.URL.Query().Get("path")
 	dir, err := fsutil.ResolveWithinRoot(root, base)
