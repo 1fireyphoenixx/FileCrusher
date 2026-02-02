@@ -63,6 +63,14 @@ func (d *DB) setPragmas(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Wait briefly instead of failing immediately on SQLITE_BUSY.
+	if _, err := d.sql.ExecContext(ctx, "PRAGMA busy_timeout = 5000;"); err != nil {
+		return err
+	}
+	// Reasonable tradeoff for WAL mode on typical deployments.
+	if _, err := d.sql.ExecContext(ctx, "PRAGMA synchronous = NORMAL;"); err != nil {
+		return err
+	}
 	_, err = d.sql.ExecContext(ctx, "PRAGMA foreign_keys = ON;")
 	return err
 }

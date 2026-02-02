@@ -83,6 +83,7 @@ func (s *Server) ListenAndServeTLS() error {
 	mux.HandleFunc("/api/admin/ip-allowlist/", s.withAdmin(s.handleAdminAllowlistByID))
 
 	h := withSecurityHeaders(mux)
+	h = s.withRecover(h)
 	h = s.withRequestLog(h)
 	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
 
@@ -91,9 +92,11 @@ func (s *Server) ListenAndServeTLS() error {
 		Handler:           h,
 		MaxHeaderBytes:    1 << 20,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      2 * time.Minute,
-		IdleTimeout:       60 * time.Second,
+		// NOTE: Avoid ReadTimeout/WriteTimeout here; this server supports large uploads.
+		// ReadHeaderTimeout + IdleTimeout are still enforced.
+		ReadTimeout:  0,
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
@@ -114,6 +117,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	s.Logger.Debug("login start", "remote_ip", clientIP(r))
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -137,10 +141,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing credentials"})
 		return
 	}
+	s.Logger.Debug("login parsed", "username", req.Username)
 
 	ctx := r.Context()
+	startDB := time.Now()
 	u, ok, err := s.DB.GetUserByUsername(ctx, req.Username)
 	if err != nil {
+		s.Logger.Error("login db error", "op", "GetUserByUsername", "username", req.Username, "err", err.Error(), "ms", time.Since(startDB).Milliseconds())
+		if isRetryableDBErr(err) {
+			w.Header().Set("retry-after", "1")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
 		return
 	}
@@ -148,6 +160,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
+	s.Logger.Debug("login user ok", "username", u.Username, "user_id", u.ID, "ms", time.Since(startDB).Milliseconds())
 	okPw, err := auth.VerifyPassword(req.Password, u.PassHash)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
@@ -163,10 +176,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
 		return
 	}
+	startSess := time.Now()
 	if err := s.DB.CreateSession(ctx, tok, "user", u.ID, 12*time.Hour); err != nil {
+		s.Logger.Error("login db error", "op", "CreateSession", "user_id", u.ID, "err", err.Error(), "ms", time.Since(startSess).Milliseconds())
+		if isRetryableDBErr(err) {
+			w.Header().Set("retry-after", "1")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
 		return
 	}
+	s.Logger.Debug("login session created", "user_id", u.ID, "ms", time.Since(startSess).Milliseconds())
 
 	setSessionCookie(w, tok)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
