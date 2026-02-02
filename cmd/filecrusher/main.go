@@ -1,0 +1,43 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"filecrusher/internal/cmd/admin"
+	"filecrusher/internal/cmd/server"
+	"filecrusher/internal/cmd/setup"
+)
+
+func main() {
+	if err := run(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+}
+
+func run(argv []string) error {
+	if len(argv) < 2 {
+		usage()
+		return fmt.Errorf("missing subcommand")
+	}
+
+	switch argv[1] {
+	case "setup":
+		return setup.Run(argv[2:])
+	case "server":
+		return server.Run(argv[2:])
+	case "admin":
+		return admin.Run(argv[2:])
+	case "-h", "--help", "help":
+		usage()
+		return nil
+	default:
+		usage()
+		return fmt.Errorf("unknown subcommand: %s", argv[1])
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "filecrusher <setup|server|admin> [flags]")
+}
