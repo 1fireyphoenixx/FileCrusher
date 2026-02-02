@@ -1,17 +1,18 @@
 # FileCrusher
 
-Single-binary file sharing server (staged build).
+Single-binary file sharing server.
 
-Phase 1 goals:
-- SFTP server (password + SSH public key auth)
-- HTTPS server on :5132 (Web UI + Admin API)
-- Admin TUI client that talks to :5132
-- SQLite storage for users/keys/sessions/config
+Included:
+- HTTPS server on `:5132` (Web UI + Admin API)
+- Admin TUI client (connects to `:5132`)
+- SFTP + SCP on SSH (`:2022` by default)
+- Optional FTP/FTPS servers
+- SQLite storage (users, SSH keys, sessions, config)
 
-## Quick start (planned)
+## Quick start
 
 ```bash
-go build ./cmd/filecrusher
+go build -o filecrusher ./cmd/filecrusher
 
 ./filecrusher setup --db ./data/filecrusher.db --data-dir ./data
 cp filecrusher.example.yaml filecrusher.yaml
@@ -20,9 +21,101 @@ cp filecrusher.example.yaml filecrusher.yaml
 ./filecrusher admin --addr https://127.0.0.1:5132
 ```
 
-Notes:
-- `filecrusher.yaml` is intentionally minimal; most secrets (admin password) are never stored in config.
-- TLS/SSH key paths can be provided in `filecrusher.yaml`, or omitted to use the paths written by `setup` into the sqlite config table.
+## Configuration
+
+Runtime config is `filecrusher.yaml` (minimal on purpose). Use `filecrusher.example.yaml` as a template.
+
+```yaml
+log:
+  level: "info" # info | warning | error | debug
+
+db:
+  path: "./data/filecrusher.db"
+
+data_dir: "./data"
+
+http:
+  bind: "127.0.0.1"
+  port: 5132
+  tls:
+    # Optional. If empty, server uses paths stored by `filecrusher setup` in sqlite.
+    cert_path: ""
+    key_path: ""
+
+ssh:
+  bind: "127.0.0.1"
+  port: 2022
+  # Optional. If empty, server uses path stored by `filecrusher setup` in sqlite.
+  host_key_path: ""
+
+ftp:
+  enable: false
+  port: 2121
+  passive_ports: "50000-50100"
+  public_host: ""
+
+ftps:
+  enable: true
+  port: 2122
+  passive_ports: "50000-50100"
+  public_host: ""
+```
+
+CLI flags:
+- `filecrusher server --config ./filecrusher.yaml` (config-first)
+- `filecrusher server --log-level debug|info|warning|error` (overrides config)
+- `filecrusher server --version`
+
+## Admin operations
+
+Initial setup (admin password is never stored in YAML):
+- Interactive: `./filecrusher setup --db ./data/filecrusher.db --data-dir ./data`
+- Non-interactive:
+  - `./filecrusher setup --admin-password '...'`
+  - `FILECRUSHER_ADMIN_PASSWORD=... ./filecrusher setup --admin-password-env`
+
+Reset/rotate admin password (local command, edits sqlite):
+- `./filecrusher reset-admin --db ./data/filecrusher.db`
+
+Admin TUI:
+- Connect: `./filecrusher admin --addr https://127.0.0.1:5132`
+- Users screen keys:
+  - `n` new user, `e` edit, `d` delete, `p` set password
+  - `k` manage SSH keys
+  - `w` manage admin IP allowlist
+
+Admin IP allowlist:
+- Default behavior: if allowlist is empty, admin access is loopback-only.
+- If allowlist has entries, only matching IP/CIDR can use admin endpoints (including admin login).
+- In the allowlist screen:
+  - `alt+a` add CIDR/IP
+  - `alt+d` delete selected
+
+## Web UI
+
+Browse to `https://127.0.0.1:5132/`.
+
+## Protocols
+
+Per-user protocol permissions are managed in the admin TUI:
+- SFTP (SSH subsystem)
+- SCP (SSH exec, non-recursive)
+- FTP / FTPS
+
+Defaults:
+- SSH (SFTP/SCP): `:2022`
+- FTP: disabled by default
+- FTPS: enabled/disabled via config
+
+## Security behavior
+
+- Upload limit: 512 MiB per request.
+- JSON body limit: 64 KiB.
+- Web delete safety: refuses `DELETE` of `/` (user root).
+- Rate limiting:
+  - admin login and admin endpoints
+  - user login
+- Sessions: expired sessions are periodically pruned.
 
 ## Changing TLS certs (HTTPS + FTPS)
 
