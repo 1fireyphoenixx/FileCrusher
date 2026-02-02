@@ -37,6 +37,9 @@ type Options struct {
 	FTPSPort        int
 	FTPPassivePorts string
 	FTPPublicHost   string
+
+	WebDAVEnable bool
+	WebDAVPrefix string
 }
 
 func Run(ctx context.Context, opt Options) error {
@@ -117,6 +120,8 @@ func Run(ctx context.Context, opt Options) error {
 		KeyPath:        keyPath,
 		Logger:         lg,
 		MaxUploadBytes: opt.MaxUploadBytes,
+		WebDAVEnable:   opt.WebDAVEnable,
+		WebDAVPrefix:   opt.WebDAVPrefix,
 	}
 
 	errCh := make(chan error, 4)

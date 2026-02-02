@@ -60,6 +60,10 @@ ftps:
   port: 2122
   passive_ports: "50000-50100"
   public_host: ""
+
+webdav:
+  enable: false
+  prefix: "/webdav"
 ```
 
 CLI flags:
@@ -102,11 +106,26 @@ Per-user protocol permissions are managed in the admin TUI:
 - SFTP (SSH subsystem)
 - SCP (SSH exec, non-recursive)
 - FTP / FTPS
+- WebDAV (over HTTPS)
 
 Defaults:
 - SSH (SFTP/SCP): `:2022`
 - FTP: disabled by default
 - FTPS: enabled/disabled via config
+- WebDAV: disabled by default (enable with `webdav.enable: true`)
+
+### WebDAV
+
+WebDAV runs over the same HTTPS port as the Web UI. When enabled, mount at:
+```
+https://your-server:5132/webdav/
+```
+
+Uses HTTP Basic Auth with user credentials. Works with:
+- Windows Explorer (Map Network Drive)
+- macOS Finder (Connect to Server)
+- Linux file managers (Nautilus, Dolphin)
+- `cadaver`, `rclone`, etc.
 
 ## Security behavior
 

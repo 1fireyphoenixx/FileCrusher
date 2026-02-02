@@ -69,14 +69,15 @@ func (c *Client) LogoutAdmin() error {
 }
 
 type User struct {
-	ID        int64  `json:"id"`
-	Username  string `json:"username"`
-	RootPath  string `json:"root_path"`
-	Enabled   bool   `json:"enabled"`
-	AllowSFTP bool   `json:"allow_sftp"`
-	AllowFTP  bool   `json:"allow_ftp"`
-	AllowFTPS bool   `json:"allow_ftps"`
-	AllowSCP  bool   `json:"allow_scp"`
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	RootPath    string `json:"root_path"`
+	Enabled     bool   `json:"enabled"`
+	AllowSFTP   bool   `json:"allow_sftp"`
+	AllowFTP    bool   `json:"allow_ftp"`
+	AllowFTPS   bool   `json:"allow_ftps"`
+	AllowSCP    bool   `json:"allow_scp"`
+	AllowWebDAV bool   `json:"allow_webdav"`
 }
 
 func (c *Client) ListUsers() ([]User, error) {
@@ -89,15 +90,16 @@ func (c *Client) ListUsers() ([]User, error) {
 	return resp.Users, nil
 }
 
-func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allowFTP, allowFTPS, allowSCP bool) (int64, error) {
+func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) (int64, error) {
 	var req struct {
-		Username  string `json:"username"`
-		Password  string `json:"password"`
-		RootPath  string `json:"root_path"`
-		AllowSFTP bool   `json:"allow_sftp"`
-		AllowFTP  bool   `json:"allow_ftp"`
-		AllowFTPS bool   `json:"allow_ftps"`
-		AllowSCP  bool   `json:"allow_scp"`
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		RootPath    string `json:"root_path"`
+		AllowSFTP   bool   `json:"allow_sftp"`
+		AllowFTP    bool   `json:"allow_ftp"`
+		AllowFTPS   bool   `json:"allow_ftps"`
+		AllowSCP    bool   `json:"allow_scp"`
+		AllowWebDAV bool   `json:"allow_webdav"`
 	}
 	req.Username = username
 	req.Password = password
@@ -106,6 +108,7 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 	req.AllowFTP = allowFTP
 	req.AllowFTPS = allowFTPS
 	req.AllowSCP = allowSCP
+	req.AllowWebDAV = allowWebDAV
 
 	var resp struct {
 		ID int64 `json:"id"`
@@ -116,14 +119,15 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 	return resp.ID, nil
 }
 
-func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP bool) error {
+func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) error {
 	var req struct {
-		RootPath  string `json:"root_path"`
-		Enabled   bool   `json:"enabled"`
-		AllowSFTP bool   `json:"allow_sftp"`
-		AllowFTP  bool   `json:"allow_ftp"`
-		AllowFTPS bool   `json:"allow_ftps"`
-		AllowSCP  bool   `json:"allow_scp"`
+		RootPath    string `json:"root_path"`
+		Enabled     bool   `json:"enabled"`
+		AllowSFTP   bool   `json:"allow_sftp"`
+		AllowFTP    bool   `json:"allow_ftp"`
+		AllowFTPS   bool   `json:"allow_ftps"`
+		AllowSCP    bool   `json:"allow_scp"`
+		AllowWebDAV bool   `json:"allow_webdav"`
 	}
 	req.RootPath = rootPath
 	req.Enabled = enabled
@@ -131,6 +135,7 @@ func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allow
 	req.AllowFTP = allowFTP
 	req.AllowFTPS = allowFTPS
 	req.AllowSCP = allowSCP
+	req.AllowWebDAV = allowWebDAV
 	return c.doJSON("PUT", "/api/admin/users/"+itoa(id), req, nil)
 }
 

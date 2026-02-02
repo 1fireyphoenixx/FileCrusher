@@ -27,6 +27,16 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 	return n, err
 }
 
+func (w *statusRecorder) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusRecorder) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -72,6 +82,9 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 func levelForStatus(code int) slog.Level {
 	if code >= 500 {
 		return slog.LevelError
+	}
+	if code == 401 {
+		return slog.LevelInfo
 	}
 	if code >= 400 {
 		return slog.LevelWarn

@@ -13,7 +13,7 @@ func TestUserProtocolFlagsRoundTrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.Close() })
 
-	_, err = d.CreateUser(ctx, "alice", "hash", t.TempDir(), true, true, false, true)
+	_, err = d.CreateUser(ctx, "alice", "hash", t.TempDir(), true, true, false, true, true)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestUserProtocolFlagsRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected user")
 	}
-	if !u.AllowSFTP || !u.AllowFTP || u.AllowFTPS || !u.AllowSCP {
+	if !u.AllowSFTP || !u.AllowFTP || u.AllowFTPS || !u.AllowSCP || !u.AllowWebDAV {
 		t.Fatalf("unexpected flags: %+v", u)
 	}
 }

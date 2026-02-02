@@ -47,3 +47,7 @@ ftps:
   port: 2122
   passive_ports: "50000-50100"
   public_host: ""
+
+webdav:
+  enable: false
+  prefix: "/webdav"

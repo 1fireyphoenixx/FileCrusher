@@ -1,17 +1,18 @@
 package db
 
 type User struct {
-	ID        int64
-	Username  string
-	PassHash  string
-	RootPath  string
-	Enabled   bool
-	AllowSFTP bool
-	AllowFTP  bool
-	AllowFTPS bool
-	AllowSCP  bool
-	CreatedAt int64
-	UpdatedAt int64
+	ID          int64
+	Username    string
+	PassHash    string
+	RootPath    string
+	Enabled     bool
+	AllowSFTP   bool
+	AllowFTP    bool
+	AllowFTPS   bool
+	AllowSCP    bool
+	AllowWebDAV bool
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type SSHKey struct {

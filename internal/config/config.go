@@ -49,6 +49,11 @@ type Config struct {
 		PassivePorts string `yaml:"passive_ports"`
 		PublicHost   string `yaml:"public_host"`
 	} `yaml:"ftps"`
+
+	WebDAV struct {
+		Enable bool   `yaml:"enable"`
+		Prefix string `yaml:"prefix"`
+	} `yaml:"webdav"`
 }
 
 func Load(path string) (Config, error) {
@@ -112,6 +117,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.FTPS.PassivePorts == "" {
 		c.FTPS.PassivePorts = c.FTP.PassivePorts
+	}
+	if c.WebDAV.Prefix == "" {
+		c.WebDAV.Prefix = "/webdav"
 	}
 }
 

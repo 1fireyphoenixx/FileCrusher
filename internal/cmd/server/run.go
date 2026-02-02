@@ -28,6 +28,8 @@ type Options struct {
 	FTPSPort        int
 	FTPPassivePorts string
 	FTPPublicHost   string
+	WebDAVEnable    bool
+	WebDAVPrefix    string
 }
 
 func Run(args []string) error {
@@ -48,6 +50,8 @@ func Run(args []string) error {
 	fs.IntVar(&opt.FTPSPort, "ftps-port", 2122, "FTPS control port")
 	fs.StringVar(&opt.FTPPassivePorts, "ftp-passive-ports", "50000-50100", "passive data port range start-end")
 	fs.StringVar(&opt.FTPPublicHost, "ftp-public-host", "", "public IP to advertise in PASV responses")
+	fs.BoolVar(&opt.WebDAVEnable, "webdav-enable", false, "enable WebDAV access")
+	fs.StringVar(&opt.WebDAVPrefix, "webdav-prefix", "/webdav", "WebDAV URL prefix")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,6 +93,8 @@ func Run(args []string) error {
 			TLSCertPath:     resolvePath(base, c.HTTP.TLS.CertPath),
 			TLSKeyPath:      resolvePath(base, c.HTTP.TLS.KeyPath),
 			SSHHostKeyPath:  resolvePath(base, c.SSH.HostKeyPath),
+			WebDAVEnable:    c.WebDAV.Enable,
+			WebDAVPrefix:    c.WebDAV.Prefix,
 			Logger:          lg,
 		})
 	}
@@ -109,6 +115,8 @@ func Run(args []string) error {
 		FTPSPort:        opt.FTPSPort,
 		FTPPassivePorts: opt.FTPPassivePorts,
 		FTPPublicHost:   opt.FTPPublicHost,
+		WebDAVEnable:    opt.WebDAVEnable,
+		WebDAVPrefix:    opt.WebDAVPrefix,
 		Logger:          lg,
 	})
 }

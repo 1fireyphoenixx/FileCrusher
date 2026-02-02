@@ -21,6 +21,7 @@ import (
 	"filecrusher/internal/db"
 	"filecrusher/internal/fsutil"
 	"filecrusher/internal/validate"
+	"filecrusher/internal/webdavserver"
 	"filecrusher/internal/webui"
 	"golang.org/x/crypto/ssh"
 )
@@ -33,6 +34,9 @@ type Server struct {
 	KeyPath        string
 	Logger         *slog.Logger
 	MaxUploadBytes int64
+
+	WebDAVEnable bool
+	WebDAVPrefix string
 
 	adminLimiter *fixedWindowLimiter
 	userLimiter  *fixedWindowLimiter
@@ -83,6 +87,16 @@ func (s *Server) ListenAndServeTLS() error {
 	mux.HandleFunc("/api/admin/users/", s.withAdmin(s.handleAdminUserByID))
 	mux.HandleFunc("/api/admin/ip-allowlist", s.withAdmin(s.handleAdminAllowlist))
 	mux.HandleFunc("/api/admin/ip-allowlist/", s.withAdmin(s.handleAdminAllowlistByID))
+
+	if s.WebDAVEnable {
+		prefix := s.WebDAVPrefix
+		if prefix == "" {
+			prefix = "/webdav"
+		}
+		davHandler := &webdavserver.Handler{DB: s.DB, Prefix: prefix, Logger: s.Logger}
+		mux.Handle(prefix+"/", davHandler)
+		s.Logger.Info("webdav enabled", "prefix", prefix)
+	}
 
 	h := withSecurityHeaders(mux)
 	h = s.withRecover(h)
@@ -378,42 +392,45 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		type item struct {
-			ID        int64  `json:"id"`
-			Username  string `json:"username"`
-			RootPath  string `json:"root_path"`
-			Enabled   bool   `json:"enabled"`
-			AllowSFTP bool   `json:"allow_sftp"`
-			AllowFTP  bool   `json:"allow_ftp"`
-			AllowFTPS bool   `json:"allow_ftps"`
-			AllowSCP  bool   `json:"allow_scp"`
-			CreatedAt int64  `json:"created_at"`
-			UpdatedAt int64  `json:"updated_at"`
+			ID          int64  `json:"id"`
+			Username    string `json:"username"`
+			RootPath    string `json:"root_path"`
+			Enabled     bool   `json:"enabled"`
+			AllowSFTP   bool   `json:"allow_sftp"`
+			AllowFTP    bool   `json:"allow_ftp"`
+			AllowFTPS   bool   `json:"allow_ftps"`
+			AllowSCP    bool   `json:"allow_scp"`
+			AllowWebDAV bool   `json:"allow_webdav"`
+			CreatedAt   int64  `json:"created_at"`
+			UpdatedAt   int64  `json:"updated_at"`
 		}
 		out := make([]item, 0, len(users))
 		for _, u := range users {
 			out = append(out, item{
-				ID:        u.ID,
-				Username:  u.Username,
-				RootPath:  u.RootPath,
-				Enabled:   u.Enabled,
-				AllowSFTP: u.AllowSFTP,
-				AllowFTP:  u.AllowFTP,
-				AllowFTPS: u.AllowFTPS,
-				AllowSCP:  u.AllowSCP,
-				CreatedAt: u.CreatedAt,
-				UpdatedAt: u.UpdatedAt,
+				ID:          u.ID,
+				Username:    u.Username,
+				RootPath:    u.RootPath,
+				Enabled:     u.Enabled,
+				AllowSFTP:   u.AllowSFTP,
+				AllowFTP:    u.AllowFTP,
+				AllowFTPS:   u.AllowFTPS,
+				AllowSCP:    u.AllowSCP,
+				AllowWebDAV: u.AllowWebDAV,
+				CreatedAt:   u.CreatedAt,
+				UpdatedAt:   u.UpdatedAt,
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"users": out})
 	case http.MethodPost:
 		var req struct {
-			Username  string `json:"username"`
-			Password  string `json:"password"`
-			RootPath  string `json:"root_path"`
-			AllowSFTP bool   `json:"allow_sftp"`
-			AllowFTP  bool   `json:"allow_ftp"`
-			AllowFTPS bool   `json:"allow_ftps"`
-			AllowSCP  bool   `json:"allow_scp"`
+			Username    string `json:"username"`
+			Password    string `json:"password"`
+			RootPath    string `json:"root_path"`
+			AllowSFTP   bool   `json:"allow_sftp"`
+			AllowFTP    bool   `json:"allow_ftp"`
+			AllowFTPS   bool   `json:"allow_ftps"`
+			AllowSCP    bool   `json:"allow_scp"`
+			AllowWebDAV bool   `json:"allow_webdav"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -437,7 +454,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
 			return
 		}
-		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP)
+		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "create user failed"})
 			return
@@ -465,12 +482,13 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPut:
 			var req struct {
-				RootPath  string `json:"root_path"`
-				Enabled   bool   `json:"enabled"`
-				AllowSFTP bool   `json:"allow_sftp"`
-				AllowFTP  bool   `json:"allow_ftp"`
-				AllowFTPS bool   `json:"allow_ftps"`
-				AllowSCP  bool   `json:"allow_scp"`
+				RootPath    string `json:"root_path"`
+				Enabled     bool   `json:"enabled"`
+				AllowSFTP   bool   `json:"allow_sftp"`
+				AllowFTP    bool   `json:"allow_ftp"`
+				AllowFTPS   bool   `json:"allow_ftps"`
+				AllowSCP    bool   `json:"allow_scp"`
+				AllowWebDAV bool   `json:"allow_webdav"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -481,7 +499,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
-			if err := s.DB.UpdateUser(r.Context(), userID, root, req.Enabled, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP); err != nil {
+			if err := s.DB.UpdateUser(r.Context(), userID, root, req.Enabled, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
 				return
 			}
