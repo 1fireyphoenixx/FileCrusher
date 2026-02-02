@@ -5,17 +5,25 @@ BIN := filecrusher
 CMD := ./cmd/filecrusher
 DIST_DIR := dist
 
-.PHONY: help fmt test build clean dist dist-all dist-linux-amd64 dist-linux-arm64 dist-darwin-amd64 dist-darwin-arm64 dist-windows-amd64
+.PHONY: help fmt test build clean dist dist-all dist-linux-amd64 dist-linux-arm64 dist-darwin-amd64 dist-darwin-arm64 dist-windows-amd64 run-server run-admin
 
 help:
 	@printf '%s\n' \
 		"Targets:" \
 		"  make fmt            Format Go code" \
 		"  make test           Run tests" \
-		"  make build          Build ./$(BIN)" \
+		"  make build          Build ./$(BIN) (includes server+admin subcommands)" \
+		"  make run-server     Run ./$(BIN) server ... (pass ARGS=...)" \
+		"  make run-admin      Run ./$(BIN) admin ... (pass ARGS=...)" \
 		"  make dist           Build $(DIST_DIR)/$(BIN)" \
 		"  make dist-all       Cross-build into $(DIST_DIR)/" \
 		"  make clean          Remove build outputs"
+
+run-server: build
+	./$(BIN) server $(ARGS)
+
+run-admin: build
+	./$(BIN) admin $(ARGS)
 
 fmt:
 	$(GO) fmt ./...

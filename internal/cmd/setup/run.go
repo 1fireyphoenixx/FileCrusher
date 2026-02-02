@@ -12,6 +12,7 @@ type Options struct {
 	DataDir          string
 	AdminPassword    string
 	AdminPasswordEnv bool
+	RegenTLS         bool
 }
 
 func Run(args []string) error {
@@ -21,6 +22,7 @@ func Run(args []string) error {
 	fs.StringVar(&opt.DataDir, "data-dir", "./data", "data directory (keys/certs)")
 	fs.StringVar(&opt.AdminPassword, "admin-password", "", "set initial admin password non-interactively")
 	fs.BoolVar(&opt.AdminPasswordEnv, "admin-password-env", false, "read initial admin password from FILECRUSHER_ADMIN_PASSWORD")
+	fs.BoolVar(&opt.RegenTLS, "regen-tls", false, "overwrite tls.crt/tls.key in data-dir")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -30,5 +32,6 @@ func Run(args []string) error {
 		DataDir:          opt.DataDir,
 		AdminPassword:    opt.AdminPassword,
 		AdminPasswordEnv: opt.AdminPasswordEnv,
+		RegenTLS:         opt.RegenTLS,
 	})
 }

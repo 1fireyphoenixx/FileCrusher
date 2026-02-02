@@ -35,3 +35,6 @@ By default, `filecrusher setup` generates a self-signed cert and writes it to yo
 To change the cert/key:
 1. Config override (recommended): set `http.tls.cert_path` and `http.tls.key_path` in `filecrusher.yaml`, then restart `filecrusher server`.
 2. Replace-in-place: overwrite the existing `./data/tls.crt` and `./data/tls.key` files (or whatever paths your DB points to), then restart.
+
+If you generated certs previously and your browser reports `ERR_SSL_VERSION_OR_CIPHER_MISMATCH`, regenerate the self-signed cert with:
+`./filecrusher setup --db ./data/filecrusher.db --data-dir ./data --regen-tls`

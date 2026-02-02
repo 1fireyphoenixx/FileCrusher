@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +33,8 @@ type Options struct {
 	AdminPassword string
 	// AdminPasswordEnv reads the initial admin password from FILECRUSHER_ADMIN_PASSWORD.
 	AdminPasswordEnv bool
+	// RegenTLS forces overwriting tls.crt/tls.key in data_dir.
+	RegenTLS bool
 }
 
 func Run(ctx context.Context, opt Options) error {
@@ -77,7 +81,7 @@ func Run(ctx context.Context, opt Options) error {
 	// Generate TLS cert/key for :5132.
 	certPath := filepath.Join(opt.DataDir, "tls.crt")
 	keyPath := filepath.Join(opt.DataDir, "tls.key")
-	if err := ensureTLSCert(certPath, keyPath); err != nil {
+	if err := ensureTLSCert(certPath, keyPath, opt.RegenTLS); err != nil {
 		return err
 	}
 	if err := d.SetConfig(ctx, "tls_cert_path", certPath); err != nil {
@@ -161,8 +165,8 @@ func promptPassword(label string) (string, error) {
 	}
 }
 
-func ensureTLSCert(certPath, keyPath string) error {
-	if fileExists(certPath) && fileExists(keyPath) {
+func ensureTLSCert(certPath, keyPath string, regen bool) error {
+	if !regen && fileExists(certPath) && fileExists(keyPath) {
 		_, err := tls.LoadX509KeyPair(certPath, keyPath)
 		return err
 	}
@@ -171,7 +175,7 @@ func ensureTLSCert(certPath, keyPath string) error {
 		return err
 	}
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
 	}
@@ -188,14 +192,17 @@ func ensureTLSCert(certPath, keyPath string) error {
 		},
 		NotBefore:             time.Now().Add(-5 * time.Minute),
 		NotAfter:              time.Now().Add(3650 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		DNSNames:              []string{"localhost"},
-		IPAddresses:           nil,
+		IPAddresses: []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		},
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, pub, priv)
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &priv.PublicKey, priv)
 	if err != nil {
 		return err
 	}
