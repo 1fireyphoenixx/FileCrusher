@@ -157,7 +157,7 @@ func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.Clie
 // GetTLSConfig provides TLS settings for FTPS and optional TLS in FTP.
 func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	if d.tlsConfig == nil {
-		return nil, nil
+		return nil, errors.New("tls not configured")
 	}
 	c := d.tlsConfig.Clone()
 	if c.MinVersion == 0 {
