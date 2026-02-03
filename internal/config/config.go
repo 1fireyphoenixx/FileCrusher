@@ -42,6 +42,7 @@ type Config struct {
 
 	FTP struct {
 		Enable       bool   `yaml:"enable"`
+		ExplicitTLS  bool   `yaml:"explicit_tls"`
 		Port         int    `yaml:"port"`
 		PassivePorts string `yaml:"passive_ports"`
 		PublicHost   string `yaml:"public_host"`
@@ -53,6 +54,13 @@ type Config struct {
 		PassivePorts string `yaml:"passive_ports"`
 		PublicHost   string `yaml:"public_host"`
 	} `yaml:"ftps"`
+
+	FTPSImplicit struct {
+		Enable       bool   `yaml:"enable"`
+		Port         int    `yaml:"port"`
+		PassivePorts string `yaml:"passive_ports"`
+		PublicHost   string `yaml:"public_host"`
+	} `yaml:"ftps_implicit"`
 
 	WebDAV struct {
 		Enable bool   `yaml:"enable"`
@@ -117,6 +125,8 @@ func applyDefaults(c *Config) {
 	if c.FTP.Port == 0 {
 		c.FTP.Port = 2121
 	}
+	// By default, keep explicit TLS on the FTP listener disabled.
+	// This preserves legacy behavior; enable it explicitly if you want AUTH TLS on ftp.port.
 	if c.FTP.PassivePorts == "" {
 		c.FTP.PassivePorts = "50000-50100"
 	}
@@ -125,6 +135,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.FTPS.PassivePorts == "" {
 		c.FTPS.PassivePorts = c.FTP.PassivePorts
+	}
+	if c.FTPSImplicit.Port == 0 {
+		c.FTPSImplicit.Port = 990
+	}
+	if c.FTPSImplicit.PassivePorts == "" {
+		c.FTPSImplicit.PassivePorts = c.FTP.PassivePorts
 	}
 	if c.WebDAV.Prefix == "" {
 		c.WebDAV.Prefix = "/webdav"
@@ -158,7 +174,10 @@ func validate(c *Config) error {
 	if c.FTPS.Port <= 0 || c.FTPS.Port > 65535 {
 		return errors.New("ftps.port is invalid")
 	}
-	if c.FTPS.Enable {
+	if c.FTPSImplicit.Port <= 0 || c.FTPSImplicit.Port > 65535 {
+		return errors.New("ftps_implicit.port is invalid")
+	}
+	if c.FTP.ExplicitTLS || c.FTPS.Enable || c.FTPSImplicit.Enable {
 		// If either TLS path is set, require both.
 		cp := strings.TrimSpace(c.HTTP.TLS.CertPath)
 		kp := strings.TrimSpace(c.HTTP.TLS.KeyPath)

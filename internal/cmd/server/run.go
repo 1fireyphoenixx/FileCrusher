@@ -27,9 +27,12 @@ type Options struct {
 	WebPort         int
 	SFTPPort        int
 	FTPEnable       bool
+	FTPExplicitTLS  bool
 	FTPPort         int
 	FTPSEnable      bool
 	FTPSPort        int
+	FTPSImplicitEnable bool
+	FTPSImplicitPort   int
 	FTPPassivePorts string
 	FTPPublicHost   string
 	WebDAVEnable    bool
@@ -51,9 +54,12 @@ func Run(args []string) error {
 	fs.IntVar(&opt.WebPort, "web-port", 5132, "web/admin HTTPS port")
 	fs.IntVar(&opt.SFTPPort, "sftp-port", 2022, "SFTP SSH port")
 	fs.BoolVar(&opt.FTPEnable, "ftp-enable", false, "enable plain FTP (insecure; prefer FTPS)")
+	fs.BoolVar(&opt.FTPExplicitTLS, "ftp-explicit-tls", false, "allow explicit TLS upgrade (AUTH TLS) on the FTP port")
 	fs.IntVar(&opt.FTPPort, "ftp-port", 2121, "FTP control port")
 	fs.BoolVar(&opt.FTPSEnable, "ftps-enable", false, "enable explicit FTPS")
 	fs.IntVar(&opt.FTPSPort, "ftps-port", 2122, "FTPS control port")
+	fs.BoolVar(&opt.FTPSImplicitEnable, "ftps-implicit-enable", false, "enable implicit FTPS")
+	fs.IntVar(&opt.FTPSImplicitPort, "ftps-implicit-port", 990, "implicit FTPS control port")
 	fs.StringVar(&opt.FTPPassivePorts, "ftp-passive-ports", "50000-50100", "passive data port range start-end")
 	fs.StringVar(&opt.FTPPublicHost, "ftp-public-host", "", "public IP to advertise in PASV responses")
 	fs.BoolVar(&opt.WebDAVEnable, "webdav-enable", false, "enable WebDAV access")
@@ -91,11 +97,14 @@ func Run(args []string) error {
 			SFTPPort:        c.SSH.Port,
 			MaxUploadBytes:  int64(c.HTTP.MaxUploadMB) << 20,
 			FTPEnable:       c.FTP.Enable,
+			FTPExplicitTLS:  c.FTP.ExplicitTLS,
 			FTPPort:         c.FTP.Port,
 			FTPSEnable:      c.FTPS.Enable,
 			FTPSPort:        c.FTPS.Port,
-			FTPPassivePorts: firstNonEmpty(c.FTPS.PassivePorts, c.FTP.PassivePorts),
-			FTPPublicHost:   firstNonEmpty(c.FTPS.PublicHost, c.FTP.PublicHost),
+			FTPSImplicitEnable: c.FTPSImplicit.Enable,
+			FTPSImplicitPort:   c.FTPSImplicit.Port,
+			FTPPassivePorts: firstNonEmpty3(c.FTPSImplicit.PassivePorts, c.FTPS.PassivePorts, c.FTP.PassivePorts),
+			FTPPublicHost:   firstNonEmpty3(c.FTPSImplicit.PublicHost, c.FTPS.PublicHost, c.FTP.PublicHost),
 			TLSCertPath:     resolvePath(base, c.HTTP.TLS.CertPath),
 			TLSKeyPath:      resolvePath(base, c.HTTP.TLS.KeyPath),
 			SSHHostKeyPath:  resolvePath(base, c.SSH.HostKeyPath),
@@ -116,9 +125,12 @@ func Run(args []string) error {
 		WebPort:         opt.WebPort,
 		SFTPPort:        opt.SFTPPort,
 		FTPEnable:       opt.FTPEnable,
+		FTPExplicitTLS:  opt.FTPExplicitTLS,
 		FTPPort:         opt.FTPPort,
 		FTPSEnable:      opt.FTPSEnable,
 		FTPSPort:        opt.FTPSPort,
+		FTPSImplicitEnable: opt.FTPSImplicitEnable,
+		FTPSImplicitPort:   opt.FTPSImplicitPort,
 		FTPPassivePorts: opt.FTPPassivePorts,
 		FTPPublicHost:   opt.FTPPublicHost,
 		WebDAVEnable:    opt.WebDAVEnable,
@@ -147,4 +159,8 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return strings.TrimSpace(b)
+}
+
+func firstNonEmpty3(a, b, c string) string {
+	return firstNonEmpty(a, firstNonEmpty(b, c))
 }

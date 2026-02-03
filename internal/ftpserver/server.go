@@ -20,6 +20,7 @@ type Mode int
 const (
 	ModeFTP Mode = iota + 1
 	ModeFTPS
+	ModeFTPSImplicit
 )
 
 // Options configures server address, TLS, and feature flags.
@@ -43,16 +44,23 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	if opt.Addr == "" {
 		return errors.New("addr is required")
 	}
-	if opt.Mode != ModeFTP && opt.Mode != ModeFTPS {
+	if opt.Mode != ModeFTP && opt.Mode != ModeFTPS && opt.Mode != ModeFTPSImplicit {
 		return errors.New("invalid mode")
 	}
-	if opt.Mode == ModeFTPS && opt.TLSConfig == nil {
+	if (opt.Mode == ModeFTPS || opt.Mode == ModeFTPSImplicit) && opt.TLSConfig == nil {
 		return errors.New("tls config is required for FTPS")
 	}
 
 	ln, err := net.Listen("tcp", opt.Addr)
 	if err != nil {
 		return err
+	}
+	if opt.Mode == ModeFTPSImplicit {
+		c := opt.TLSConfig.Clone()
+		if c.MinVersion == 0 {
+			c.MinVersion = tls.VersionTLS12
+		}
+		ln = tls.NewListener(ln, c)
 	}
 	defer ln.Close()
 	go func() {
@@ -88,8 +96,11 @@ func (d *mainDriver) GetSettings() (*ftp.Settings, error) {
 	}
 
 	tlsReq := ftp.ClearOrEncrypted
-	if d.mode == ModeFTPS {
+	switch d.mode {
+	case ModeFTPS:
 		tlsReq = ftp.MandatoryEncryption
+	case ModeFTPSImplicit:
+		tlsReq = ftp.ImplicitEncryption
 	}
 
 	s := &ftp.Settings{
@@ -146,8 +157,7 @@ func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.Clie
 // GetTLSConfig provides TLS settings for FTPS and optional TLS in FTP.
 func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	if d.tlsConfig == nil {
-		// ClearOrEncrypted supports non-TLS clients.
-		return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+		return nil, nil
 	}
 	c := d.tlsConfig.Clone()
 	if c.MinVersion == 0 {
@@ -170,7 +180,8 @@ func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
 		return errors.New("access denied")
 	}
 
-	// Enforce TLS before proceeding in FTPS mode.
+	// Enforce TLS before proceeding in explicit-FTPS mode.
+	// For implicit FTPS, the control channel is already TLS at accept time.
 	if d.mode == ModeFTPS {
 		_ = cc.SetTLSRequirement(ftp.MandatoryEncryption)
 	}

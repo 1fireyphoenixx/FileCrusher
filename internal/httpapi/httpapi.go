@@ -23,6 +23,7 @@ import (
 	"filecrusher/internal/validate"
 	"filecrusher/internal/webdavserver"
 	"filecrusher/internal/webui"
+	"filecrusher/internal/version"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -138,8 +139,10 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "web ui missing"})
 		return
 	}
+	// Keep the web UI static, but inject the build version for visibility.
+	page := strings.ReplaceAll(string(b), "{{VERSION}}", "v"+version.Version)
 	w.Header().Set("content-type", "text/html; charset=utf-8")
-	_, _ = w.Write(b)
+	_, _ = w.Write([]byte(page))
 }
 
 // handleLogin authenticates a user and issues a session cookie.

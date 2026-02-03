@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"filecrusher/internal/adminapi"
+	"filecrusher/internal/version"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -293,7 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the current screen as a string.
 func (m Model) View() string {
 	var b strings.Builder
-	b.WriteString("FileCrusher admin")
+	b.WriteString("FileCrusher admin v" + version.Version)
 	if m.addr != "" {
 		b.WriteString(" (" + m.addr + ")")
 	}

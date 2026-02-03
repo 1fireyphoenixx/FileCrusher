@@ -48,6 +48,15 @@ body {
   font-size: 18px;
 }
 
+.version {
+  margin-left: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .card {
   margin-top: 18px;
   padding: 18px;

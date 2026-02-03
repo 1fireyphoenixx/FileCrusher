@@ -38,6 +38,9 @@ ssh:
 ftp:
   # Plain FTP is insecure (cleartext creds). Keep disabled unless you truly need it.
   enable: false
+  # Allow explicit TLS upgrade (AUTH TLS) on the FTP port.
+  # This gives you a single port that can serve both legacy FTP and FTPES.
+  explicit_tls: false
   port: 2121
   passive_ports: "50000-50100"
   public_host: ""
@@ -45,6 +48,14 @@ ftp:
 ftps:
   enable: true
   port: 2122
+  passive_ports: "50000-50100"
+  public_host: ""
+
+# Implicit FTPS starts TLS immediately after TCP connect (typically port 990).
+# Many clients infer implicit-vs-explicit by port number.
+ftps_implicit:
+  enable: false
+  port: 990
   passive_ports: "50000-50100"
   public_host: ""
 
