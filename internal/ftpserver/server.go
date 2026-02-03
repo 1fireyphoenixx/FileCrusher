@@ -56,11 +56,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		return err
 	}
 	if opt.Mode == ModeFTPSImplicit {
-		c := opt.TLSConfig.Clone()
-		if c.MinVersion == 0 {
-			c.MinVersion = tls.VersionTLS12
-		}
-		ln = tls.NewListener(ln, c)
+		ln = tls.NewListener(ln, opt.TLSConfig)
 	}
 	defer ln.Close()
 	go func() {
@@ -159,11 +155,9 @@ func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	if d.tlsConfig == nil {
 		return nil, errors.New("tls not configured")
 	}
-	c := d.tlsConfig.Clone()
-	if c.MinVersion == 0 {
-		c.MinVersion = tls.VersionTLS12
-	}
-	return c, nil
+	// Important: return the same *tls.Config instance for both control and data
+	// connections so clients can verify TLS session resumption/reuse.
+	return d.tlsConfig, nil
 }
 
 // PreAuthUser validates user existence and protocol permissions.
