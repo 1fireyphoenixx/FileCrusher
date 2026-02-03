@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          ver="${GITHUB_REF_NAME}"
+          bin="filecrusher"
+          if [[ "${GOOS}" == "windows" ]]; then
+            bin="${bin}.exe"
+          fi
+
+          mkdir -p dist
+
+          go build -trimpath -ldflags "-s -w" -o "${bin}" ./cmd/filecrusher
+
+          base="filecrusher_${ver}_${GOOS}_${GOARCH}"
+          if [[ "${GOOS}" == "windows" ]]; then
+            (zip -9 -q "dist/${base}.zip" "${bin}" README.md filecrusher.example.yaml filecrusher.service)
+          else
+            (tar -czf "dist/${base}.tar.gz" "${bin}" README.md filecrusher.example.yaml filecrusher.service)
+          fi
+
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
