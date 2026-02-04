@@ -21,9 +21,9 @@ import (
 	"filecrusher/internal/db"
 	"filecrusher/internal/fsutil"
 	"filecrusher/internal/validate"
+	"filecrusher/internal/version"
 	"filecrusher/internal/webdavserver"
 	"filecrusher/internal/webui"
-	"filecrusher/internal/version"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -47,6 +47,25 @@ type Server struct {
 
 const (
 	maxJSONBytes = int64(64 << 10) // 64 KiB
+
+	headerContentType = "content-type"
+	headerRetryAfter  = "retry-after"
+
+	errMsgMethodNotAllowed   = "method not allowed"
+	errMsgRateLimited        = "rate limited"
+	errMsgInvalidJSON        = "invalid json"
+	errMsgServerError        = "server error"
+	errMsgInvalidCredentials = "invalid credentials"
+	errMsgNotAuthenticated   = "not authenticated"
+	errMsgDeleteFailed       = "delete failed"
+	errMsgMissingCredentials = "missing credentials"
+	errMsgUserNotFound       = "user not found"
+	errMsgInvalidID          = "invalid id"
+	errMsgInvalidPath        = "invalid path"
+	errMsgInvalidRequest     = "invalid request"
+	errMsgAdminAccessDenied  = "admin access denied"
+	errMsgTemporarilyUnavail = "temporarily unavailable"
+	errMsgUploadFailed       = "upload failed"
 )
 
 // ListenAndServeTLS initializes handlers and starts the HTTPS server.
@@ -141,7 +160,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	// Keep the web UI static, but inject the build version for visibility.
 	page := strings.ReplaceAll(string(b), "{{VERSION}}", "v"+version.Version)
-	w.Header().Set("content-type", "text/html; charset=utf-8")
+	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(page))
 }
 
@@ -149,12 +168,12 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.Logger.Debug("login start", "remote_ip", clientIP(r))
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	if ok, wait := s.userLimiter.Allow("user_login:" + clientIP(r)); !ok {
-		w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+		w.Header().Set(headerRetryAfter, strconv.Itoa(int(wait.Seconds())))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": errMsgRateLimited})
 		return
 	}
 
@@ -164,11 +183,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 		return
 	}
 	if req.Username == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing credentials"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgMissingCredentials})
 		return
 	}
 	s.Logger.Debug("login parsed", "username", req.Username)
@@ -179,42 +198,42 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.Logger.Error("login db error", "op", "GetUserByUsername", "username", req.Username, "err", err.Error(), "ms", time.Since(startDB).Milliseconds())
 		if isRetryableDBErr(err) {
-			w.Header().Set("retry-after", "1")
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+			w.Header().Set(headerRetryAfter, "1")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errMsgTemporarilyUnavail})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	if !ok || !u.Enabled {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgInvalidCredentials})
 		return
 	}
 	s.Logger.Debug("login user ok", "username", u.Username, "user_id", u.ID, "ms", time.Since(startDB).Milliseconds())
 	okPw, err := auth.VerifyPassword(req.Password, u.PassHash)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgInvalidCredentials})
 		return
 	}
 	if !okPw {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgInvalidCredentials})
 		return
 	}
 
 	tok, err := auth.NewToken(32)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	startSess := time.Now()
 	if err := s.DB.CreateSession(ctx, tok, "user", u.ID, 12*time.Hour); err != nil {
 		s.Logger.Error("login db error", "op", "CreateSession", "user_id", u.ID, "err", err.Error(), "ms", time.Since(startSess).Milliseconds())
 		if isRetryableDBErr(err) {
-			w.Header().Set("retry-after", "1")
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+			w.Header().Set(headerRetryAfter, "1")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errMsgTemporarilyUnavail})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	s.Logger.Debug("login session created", "user_id", u.ID, "ms", time.Since(startSess).Milliseconds())
@@ -226,7 +245,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // handleLogout clears a user session cookie.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	ctx := r.Context()
@@ -240,21 +259,21 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // handleAdminLogin authenticates an admin and issues an admin cookie.
 func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	allowed, err := isAdminAllowedByIP(s.DB, r)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	if !allowed {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access denied"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": errMsgAdminAccessDenied})
 		return
 	}
 	if ok, wait := s.adminLimiter.Allow("admin_login:" + clientIP(r)); !ok {
-		w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+		w.Header().Set(headerRetryAfter, strconv.Itoa(int(wait.Seconds())))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": errMsgRateLimited})
 		return
 	}
 
@@ -263,11 +282,11 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 		return
 	}
 	if req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing credentials"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgMissingCredentials})
 		return
 	}
 
@@ -278,17 +297,17 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	okPw, err := auth.VerifyPassword(req.Password, hash)
 	if err != nil || !okPw {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgInvalidCredentials})
 		return
 	}
 
 	tok, err := auth.NewToken(32)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	if err := s.DB.CreateSession(r.Context(), tok, "admin", 1, 12*time.Hour); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
 	}
 	setAdminCookie(w, tok)
@@ -298,7 +317,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 // handleAdminLogout clears the admin session cookie.
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	if tok, ok := readAdminCookie(r); ok {
@@ -313,31 +332,31 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allowed, err := isAdminAllowedByIP(s.DB, r)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		if !allowed {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access denied"})
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": errMsgAdminAccessDenied})
 			return
 		}
 		if ok, wait := s.adminLimiter.Allow("admin:" + clientIP(r)); !ok {
-			w.Header().Set("retry-after", strconv.Itoa(int(wait.Seconds())))
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limited"})
+			w.Header().Set(headerRetryAfter, strconv.Itoa(int(wait.Seconds())))
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": errMsgRateLimited})
 			return
 		}
 		tok, ok := readAdminCookie(r)
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		if !ok || sess.Kind != "admin" || sess.ExpiresAt <= time.Now().Unix() {
 			clearAdminCookie(w)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
 		next(w, r)
@@ -350,7 +369,7 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		entries, err := s.DB.ListAdminIPAllowlist(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
@@ -361,7 +380,7 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 			Note string `json:"note"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 			return
 		}
 		n, err := parseCIDRorIP(req.CIDR)
@@ -376,14 +395,14 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "cidr": n.String()})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 	}
 }
 
 // handleAdminAllowlistByID deletes an allowlist entry by ID.
 func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/admin/ip-allowlist/"), "/")
@@ -393,11 +412,11 @@ func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request
 	}
 	id, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || id <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidID})
 		return
 	}
 	if err := s.DB.DeleteAdminIPAllowlist(r.Context(), id); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
@@ -409,7 +428,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		users, err := s.DB.ListUsers(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		type item struct {
@@ -454,7 +473,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			AllowWebDAV bool   `json:"allow_webdav"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 			return
 		}
 		if err := validate.Username(req.Username); err != nil {
@@ -472,7 +491,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		h, err := auth.HashPassword(req.Password, auth.DefaultArgon2Params())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV)
@@ -482,7 +501,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 	}
 }
 
@@ -513,7 +532,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				AllowWebDAV bool   `json:"allow_webdav"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 				return
 			}
 			root, err := validate.RootPath(req.RootPath)
@@ -528,26 +547,26 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 		case http.MethodDelete:
 			if err := s.DB.DeleteUser(r.Context(), userID); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 		default:
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		}
 		return
 	}
 
 	if len(parts) == 2 && parts[1] == "password" {
 		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 			return
 		}
 		var req struct {
 			Password string `json:"password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 			return
 		}
 		if req.Password == "" {
@@ -556,7 +575,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 		}
 		h, err := auth.HashPassword(req.Password, auth.DefaultArgon2Params())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		if err := s.DB.SetUserPasswordHash(r.Context(), userID, h); err != nil {
@@ -573,7 +592,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 			case http.MethodGet:
 				keys, err := s.DB.ListSSHKeysForUser(r.Context(), userID)
 				if err != nil {
-					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 					return
 				}
 				writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
@@ -583,7 +602,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 					Comment   string `json:"comment"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 					return
 				}
 				pub := strings.TrimSpace(req.PublicKey)
@@ -604,7 +623,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				}
 				writeJSON(w, http.StatusOK, map[string]any{"id": keyID, "fingerprint": fp})
 			default:
-				writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 			}
 			return
 		}
@@ -615,11 +634,11 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if r.Method != http.MethodDelete {
-				writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 				return
 			}
 			if err := s.DB.DeleteSSHKeyForUser(r.Context(), userID, keyID); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
@@ -643,23 +662,23 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := readSessionCookie(r)
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
 		if !ok || sess.Kind != "user" || sess.ExpiresAt <= time.Now().Unix() {
 			clearSessionCookie(w)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
 
 		u, ok, err := s.DB.GetUserByID(r.Context(), sess.SubjectID)
 		if err != nil || !ok || !u.Enabled {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
 
@@ -686,7 +705,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	root := r.Context().Value(ctxUserRoot).(string)
 	local, err := fsutil.ResolveWithinRoot(root, path)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidPath})
 		return
 	}
 
@@ -736,19 +755,19 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 	case http.MethodDelete:
 		if err := os.RemoveAll(local); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 	}
 }
 
 // handleUpload stores a single uploaded file within the user's root.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.MaxUploadBytes)
@@ -756,11 +775,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	base := r.URL.Query().Get("path")
 	dir, err := fsutil.ResolveWithinRoot(root, base)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidPath})
 		return
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "upload failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
 
@@ -784,13 +803,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	f, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "upload failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
 	defer f.Close()
 
 	if _, err := io.Copy(f, file); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "upload failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
 
@@ -800,14 +819,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 // handleDownload serves a file or zips a directory for download.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
 	root := r.Context().Value(ctxUserRoot).(string)
 	userPath := r.URL.Query().Get("path")
 	local, err := fsutil.ResolveWithinRoot(root, userPath)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidPath})
 		return
 	}
 	st, err := os.Stat(local)
@@ -822,7 +841,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := filepath.Base(local)
-	w.Header().Set("content-type", "application/octet-stream")
+	w.Header().Set(headerContentType, "application/octet-stream")
 	w.Header().Set("content-disposition", "attachment; filename=\""+escapeQuotes(name)+"\"")
 	http.ServeFile(w, r, local)
 }
@@ -856,7 +875,7 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 	}
 	zipFile := zipBase + ".zip"
 
-	w.Header().Set("content-type", "application/zip")
+	w.Header().Set(headerContentType, "application/zip")
 	w.Header().Set("content-disposition", "attachment; filename=\""+escapeQuotes(zipFile)+"\"")
 
 	zw := zip.NewWriter(w)
@@ -1023,7 +1042,7 @@ func readSessionCookie(r *http.Request) (string, bool) {
 
 // writeJSON sends a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

@@ -11,7 +11,7 @@ func (s *Server) withRecover(next http.Handler) http.Handler {
 		defer func() {
 			if v := recover(); v != nil {
 				s.Logger.Error("panic", "panic", v, "stack", string(debug.Stack()))
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server error"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			}
 		}()
 		next.ServeHTTP(w, r)

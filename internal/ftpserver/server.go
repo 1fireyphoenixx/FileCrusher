@@ -23,6 +23,8 @@ const (
 	ModeFTPSImplicit
 )
 
+var errAccessDenied = errors.New("access denied")
+
 // Options configures server address, TLS, and feature flags.
 type Options struct {
 	Addr           string
@@ -135,10 +137,10 @@ func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.Clie
 		return nil, errors.New("invalid credentials")
 	}
 	if d.mode == ModeFTP && !u.AllowFTP {
-		return nil, errors.New("access denied")
+		return nil, errAccessDenied
 	}
 	if d.mode == ModeFTPS && !u.AllowFTPS {
-		return nil, errors.New("access denied")
+		return nil, errAccessDenied
 	}
 
 	okPw, err := auth.VerifyPassword(pass, u.PassHash)
@@ -168,10 +170,10 @@ func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
 		return errors.New("invalid user")
 	}
 	if d.mode == ModeFTP && !u.AllowFTP {
-		return errors.New("access denied")
+		return errAccessDenied
 	}
 	if d.mode == ModeFTPS && !u.AllowFTPS {
-		return errors.New("access denied")
+		return errAccessDenied
 	}
 
 	// Enforce TLS before proceeding in explicit-FTPS mode.

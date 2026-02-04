@@ -87,11 +87,11 @@ function uploadWithProgress(file, destPath, onProgress) {
       }
       try {
         const j = JSON.parse(xhr.responseText || '{}');
-        if (j && j.error) {
+        if (j?.error) {
           reject(new Error(j.error));
           return;
         }
-      } catch (_) {}
+      } catch (_) { /* JSON parse error is expected for non-JSON responses */ }
       reject(new Error(`HTTP ${xhr.status}`));
     };
 
@@ -107,8 +107,8 @@ async function api(path, opts) {
     let msg = `HTTP ${res.status}`;
     try {
       const j = await res.json();
-      if (j && j.error) msg = j.error;
-    } catch (_) {}
+      if (j?.error) msg = j.error;
+    } catch (_) { /* JSON parse error is expected for non-JSON responses */ }
     throw new Error(msg);
   }
   const ct = res.headers.get('content-type') || '';
@@ -275,7 +275,7 @@ async function refresh() {
       tr.appendChild(tdMod);
       tr.appendChild(tdAct);
       tr.addEventListener('click', (ev) => {
-        const btn = ev.target && ev.target.dataset && ev.target.dataset.act;
+        const btn = ev.target?.dataset?.act;
         if (!btn) return;
         ev.preventDefault();
         ev.stopPropagation();
@@ -384,7 +384,7 @@ document.getElementById('upload').addEventListener('change', async (ev) => {
 logoutBtn.addEventListener('click', async () => {
   try {
     await api('/api/logout', { method: 'POST' });
-  } catch (_) {}
+  } catch (_) { /* Logout failure is non-critical; proceed to clear UI */ }
   loginEl.hidden = false;
   filesEl.hidden = true;
   logoutBtn.hidden = true;

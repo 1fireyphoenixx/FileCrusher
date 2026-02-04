@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+// API path constants to avoid string duplication.
+const (
+	apiAdminUsersPath = "/api/admin/users"
+)
+
 // Client wraps HTTP calls to the admin API and manages cookies.
 type Client struct {
 	baseURL *url.URL
@@ -98,7 +103,7 @@ func (c *Client) ListUsers() ([]User, error) {
 	var resp struct {
 		Users []User `json:"users"`
 	}
-	if err := c.doJSON("GET", "/api/admin/users", nil, &resp); err != nil {
+	if err := c.doJSON("GET", apiAdminUsersPath, nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Users, nil
@@ -128,7 +133,7 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 	var resp struct {
 		ID int64 `json:"id"`
 	}
-	if err := c.doJSON("POST", "/api/admin/users", req, &resp); err != nil {
+	if err := c.doJSON("POST", apiAdminUsersPath, req, &resp); err != nil {
 		return 0, err
 	}
 	return resp.ID, nil
@@ -152,12 +157,12 @@ func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allow
 	req.AllowFTPS = allowFTPS
 	req.AllowSCP = allowSCP
 	req.AllowWebDAV = allowWebDAV
-	return c.doJSON("PUT", "/api/admin/users/"+itoa(id), req, nil)
+	return c.doJSON("PUT", apiAdminUsersPath+"/"+itoa(id), req, nil)
 }
 
 // DeleteUser removes a user by ID.
 func (c *Client) DeleteUser(id int64) error {
-	return c.doJSON("DELETE", "/api/admin/users/"+itoa(id), nil, nil)
+	return c.doJSON("DELETE", apiAdminUsersPath+"/"+itoa(id), nil, nil)
 }
 
 // SetUserPassword updates a user's password.
@@ -166,7 +171,7 @@ func (c *Client) SetUserPassword(id int64, password string) error {
 		Password string `json:"password"`
 	}
 	req.Password = password
-	return c.doJSON("POST", "/api/admin/users/"+itoa(id)+"/password", req, nil)
+	return c.doJSON("POST", apiAdminUsersPath+"/"+itoa(id)+"/password", req, nil)
 }
 
 // SSHKey mirrors the admin API SSH key representation.
@@ -226,7 +231,7 @@ func (c *Client) ListKeys(userID int64) ([]SSHKey, error) {
 	var resp struct {
 		Keys []SSHKey `json:"keys"`
 	}
-	if err := c.doJSON("GET", "/api/admin/users/"+itoa(userID)+"/keys", nil, &resp); err != nil {
+	if err := c.doJSON("GET", apiAdminUsersPath+"/"+itoa(userID)+"/keys", nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Keys, nil
@@ -245,7 +250,7 @@ func (c *Client) AddKey(userID int64, publicKey, comment string) (int64, string,
 		ID          int64  `json:"id"`
 		Fingerprint string `json:"fingerprint"`
 	}
-	if err := c.doJSON("POST", "/api/admin/users/"+itoa(userID)+"/keys", req, &resp); err != nil {
+	if err := c.doJSON("POST", apiAdminUsersPath+"/"+itoa(userID)+"/keys", req, &resp); err != nil {
 		return 0, "", err
 	}
 	return resp.ID, resp.Fingerprint, nil
@@ -253,7 +258,7 @@ func (c *Client) AddKey(userID int64, publicKey, comment string) (int64, string,
 
 // DeleteKey removes an SSH key for a user.
 func (c *Client) DeleteKey(userID, keyID int64) error {
-	return c.doJSON("DELETE", "/api/admin/users/"+itoa(userID)+"/keys/"+itoa(keyID), nil, nil)
+	return c.doJSON("DELETE", apiAdminUsersPath+"/"+itoa(userID)+"/keys/"+itoa(keyID), nil, nil)
 }
 
 // doJSON executes an HTTP request and decodes JSON responses.

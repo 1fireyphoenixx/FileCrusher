@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // SQLite driver registration
 )
 
 // DB wraps a sql.DB and provides higher-level helpers.

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var errInvalidUserID = errors.New("invalid user id")
+
 // nowUnix returns the current Unix timestamp in seconds.
 func nowUnix() int64 { return time.Now().Unix() }
 
@@ -79,7 +81,7 @@ VALUES(?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
 // UpdateUser updates mutable user fields and protocol permissions.
 func (d *DB) UpdateUser(ctx context.Context, id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) error {
 	if id <= 0 {
-		return errors.New("invalid user id")
+		return errInvalidUserID
 	}
 	_, err := d.sql.ExecContext(ctx, `
 UPDATE users SET root_path=?, enabled=?, allow_sftp=?, allow_ftp=?, allow_ftps=?, allow_scp=?, allow_webdav=?, updated_at=? WHERE id=?
@@ -90,7 +92,7 @@ UPDATE users SET root_path=?, enabled=?, allow_sftp=?, allow_ftp=?, allow_ftps=?
 // SetUserPasswordHash updates a user's password hash.
 func (d *DB) SetUserPasswordHash(ctx context.Context, id int64, passHash string) error {
 	if id <= 0 {
-		return errors.New("invalid user id")
+		return errInvalidUserID
 	}
 	if passHash == "" {
 		return errors.New("password hash is required")
@@ -102,7 +104,7 @@ func (d *DB) SetUserPasswordHash(ctx context.Context, id int64, passHash string)
 // DeleteUser removes a user by ID.
 func (d *DB) DeleteUser(ctx context.Context, id int64) error {
 	if id <= 0 {
-		return errors.New("invalid user id")
+		return errInvalidUserID
 	}
 	_, err := d.sql.ExecContext(ctx, `DELETE FROM users WHERE id=?`, id)
 	return err
@@ -189,7 +191,7 @@ FROM users ORDER BY username ASC
 // AddSSHKey stores a new SSH key for a user.
 func (d *DB) AddSSHKey(ctx context.Context, userID int64, publicKey, fingerprint, comment string) (int64, error) {
 	if userID <= 0 {
-		return 0, errors.New("invalid user id")
+		return 0, errInvalidUserID
 	}
 	if publicKey == "" || fingerprint == "" {
 		return 0, errors.New("public key and fingerprint are required")

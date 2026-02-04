@@ -18,6 +18,8 @@ import (
 	ftp "github.com/fclairamb/ftpserverlib"
 )
 
+var errInvalidFTPPassivePorts = errors.New("invalid ftp-passive-ports")
+
 // Options configures the daemon runtime.
 // Optional TLS/SSH paths override values stored in the database.
 type Options struct {
@@ -35,15 +37,15 @@ type Options struct {
 	Logger         *slog.Logger
 	MaxUploadBytes int64
 
-	FTPEnable       bool
-	FTPExplicitTLS  bool
-	FTPPort         int
-	FTPSEnable      bool
-	FTPSPort        int
+	FTPEnable          bool
+	FTPExplicitTLS     bool
+	FTPPort            int
+	FTPSEnable         bool
+	FTPSPort           int
 	FTPSImplicitEnable bool
 	FTPSImplicitPort   int
-	FTPPassivePorts string
-	FTPPublicHost   string
+	FTPPassivePorts    string
+	FTPPublicHost      string
 
 	WebDAVEnable bool
 	WebDAVPrefix string
@@ -192,18 +194,18 @@ func parsePortRange(s string) (*ftp.PortRange, error) {
 	}
 	parts := strings.Split(s, "-")
 	if len(parts) != 2 {
-		return nil, errors.New("invalid ftp-passive-ports")
+		return nil, errInvalidFTPPassivePorts
 	}
 	start, err := strconv.Atoi(strings.TrimSpace(parts[0]))
 	if err != nil {
-		return nil, errors.New("invalid ftp-passive-ports")
+		return nil, errInvalidFTPPassivePorts
 	}
 	end, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil {
-		return nil, errors.New("invalid ftp-passive-ports")
+		return nil, errInvalidFTPPassivePorts
 	}
 	if start <= 0 || end <= 0 || end < start {
-		return nil, errors.New("invalid ftp-passive-ports")
+		return nil, errInvalidFTPPassivePorts
 	}
 	pr := &ftp.PortRange{Start: start, End: end}
 	return pr, nil

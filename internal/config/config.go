@@ -11,61 +11,71 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TLSConfig holds TLS certificate paths.
+type TLSConfig struct {
+	CertPath string `yaml:"cert_path"`
+	KeyPath  string `yaml:"key_path"`
+}
+
+// LogConfig holds logging settings.
+type LogConfig struct {
+	Level string `yaml:"level"`
+}
+
+// DBConfig holds database settings.
+type DBConfig struct {
+	Path string `yaml:"path"`
+}
+
+// HTTPConfig holds HTTP server settings.
+type HTTPConfig struct {
+	Bind        string    `yaml:"bind"`
+	Port        int       `yaml:"port"`
+	MaxUploadMB int       `yaml:"max_upload_mb"`
+	TLS         TLSConfig `yaml:"tls"`
+}
+
+// SSHConfig holds SSH server settings.
+type SSHConfig struct {
+	Bind        string `yaml:"bind"`
+	Port        int    `yaml:"port"`
+	HostKeyPath string `yaml:"host_key_path"`
+}
+
+// FTPConfig holds FTP server settings.
+type FTPConfig struct {
+	Enable       bool   `yaml:"enable"`
+	ExplicitTLS  bool   `yaml:"explicit_tls"`
+	Port         int    `yaml:"port"`
+	PassivePorts string `yaml:"passive_ports"`
+	PublicHost   string `yaml:"public_host"`
+}
+
+// FTPSConfig holds FTPS server settings.
+type FTPSConfig struct {
+	Enable       bool   `yaml:"enable"`
+	Port         int    `yaml:"port"`
+	PassivePorts string `yaml:"passive_ports"`
+	PublicHost   string `yaml:"public_host"`
+}
+
+// WebDAVConfig holds WebDAV settings.
+type WebDAVConfig struct {
+	Enable bool   `yaml:"enable"`
+	Prefix string `yaml:"prefix"`
+}
+
 // Config mirrors the filecrusher.yaml schema.
-// Nested fields align with top-level YAML keys.
 type Config struct {
-	Log struct {
-		Level string `yaml:"level"`
-	} `yaml:"log"`
-
-	DB struct {
-		Path string `yaml:"path"`
-	} `yaml:"db"`
-
-	DataDir string `yaml:"data_dir"`
-
-	HTTP struct {
-		Bind        string `yaml:"bind"`
-		Port        int    `yaml:"port"`
-		MaxUploadMB int    `yaml:"max_upload_mb"`
-		TLS         struct {
-			CertPath string `yaml:"cert_path"`
-			KeyPath  string `yaml:"key_path"`
-		} `yaml:"tls"`
-	} `yaml:"http"`
-
-	SSH struct {
-		Bind        string `yaml:"bind"`
-		Port        int    `yaml:"port"`
-		HostKeyPath string `yaml:"host_key_path"`
-	} `yaml:"ssh"`
-
-	FTP struct {
-		Enable       bool   `yaml:"enable"`
-		ExplicitTLS  bool   `yaml:"explicit_tls"`
-		Port         int    `yaml:"port"`
-		PassivePorts string `yaml:"passive_ports"`
-		PublicHost   string `yaml:"public_host"`
-	} `yaml:"ftp"`
-
-	FTPS struct {
-		Enable       bool   `yaml:"enable"`
-		Port         int    `yaml:"port"`
-		PassivePorts string `yaml:"passive_ports"`
-		PublicHost   string `yaml:"public_host"`
-	} `yaml:"ftps"`
-
-	FTPSImplicit struct {
-		Enable       bool   `yaml:"enable"`
-		Port         int    `yaml:"port"`
-		PassivePorts string `yaml:"passive_ports"`
-		PublicHost   string `yaml:"public_host"`
-	} `yaml:"ftps_implicit"`
-
-	WebDAV struct {
-		Enable bool   `yaml:"enable"`
-		Prefix string `yaml:"prefix"`
-	} `yaml:"webdav"`
+	Log          LogConfig    `yaml:"log"`
+	DB           DBConfig     `yaml:"db"`
+	DataDir      string       `yaml:"data_dir"`
+	HTTP         HTTPConfig   `yaml:"http"`
+	SSH          SSHConfig    `yaml:"ssh"`
+	FTP          FTPConfig    `yaml:"ftp"`
+	FTPS         FTPSConfig   `yaml:"ftps"`
+	FTPSImplicit FTPSConfig   `yaml:"ftps_implicit"`
+	WebDAV       WebDAVConfig `yaml:"webdav"`
 }
 
 // Load reads a YAML config file, applies defaults, and validates it.
