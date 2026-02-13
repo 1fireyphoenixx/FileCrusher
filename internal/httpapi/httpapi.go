@@ -66,6 +66,7 @@ const (
 	errMsgAdminAccessDenied  = "admin access denied"
 	errMsgTemporarilyUnavail = "temporarily unavailable"
 	errMsgUploadFailed       = "upload failed"
+	errMsgRenameFailed       = "rename failed"
 )
 
 // ListenAndServeTLS initializes handlers and starts the HTTPS server.
@@ -691,14 +692,17 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 // handleFiles lists directories, creates folders, or deletes paths.
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
-	if r.Method == http.MethodDelete || r.Method == http.MethodPost {
+	if r.Method == http.MethodDelete || r.Method == http.MethodPost || r.Method == http.MethodPatch {
 		p := strings.TrimSpace(path)
 		if p == "" || p == "/" {
-			if r.Method == http.MethodDelete {
+			switch r.Method {
+			case http.MethodDelete:
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to delete root"})
-				return
+			case http.MethodPatch:
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to rename root"})
+			default:
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to create root"})
 			}
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to create root"})
 			return
 		}
 	}
@@ -756,6 +760,41 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if err := os.RemoveAll(local); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
+	case http.MethodPatch:
+		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
+			return
+		}
+		newName := strings.TrimSpace(req.Name)
+		if newName == "" || newName == "." || newName == ".." ||
+			strings.ContainsAny(newName, "/\\") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid name"})
+			return
+		}
+		parentDir := filepath.Dir(local)
+		newLocal, err := fsutil.ResolveWithinRoot(root, strings.TrimLeft(
+			filepath.ToSlash(filepath.Join(strings.TrimPrefix(parentDir, root), newName)), "/"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidPath})
+			return
+		}
+		if _, err := os.Stat(local); os.IsNotExist(err) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if _, err := os.Stat(newLocal); err == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "destination already exists"})
+			return
+		}
+		if err := os.Rename(local, newLocal); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgRenameFailed})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})

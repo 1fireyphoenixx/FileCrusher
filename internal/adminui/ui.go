@@ -58,6 +58,8 @@ type Model struct {
 
 	setPw textinput.Model
 
+	selUser *adminapi.User // snapshot of the user selected when entering a sub-screen
+
 	keys       []adminapi.SSHKey
 	keyLst     list.Model
 	addKey     textinput.Model
@@ -227,6 +229,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !ok {
 					return m, nil
 				}
+				m.selUser = &u
 				m.st = stateEditUser
 				m.err = ""
 				m.edRoot.SetValue(u.RootPath)
@@ -245,10 +248,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(deleteUserCmd(m.client, u.ID), refreshUsersCmd(m.client))
 			case "p":
-				_, ok := m.selectedUser()
+				u, ok := m.selectedUser()
 				if !ok {
 					return m, nil
 				}
+				m.selUser = &u
 				m.st = stateSetPassword
 				m.err = ""
 				m.setPw.SetValue("")
@@ -259,6 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !ok {
 					return m, nil
 				}
+				m.selUser = &u
 				m.st = stateKeys
 				m.err = ""
 				m.addKey.SetValue("")
@@ -322,9 +327,8 @@ func (m Model) View() string {
 		b.WriteString(fmt.Sprintf("Allow WebDAV: %v (toggle with alt+w)\n\n", m.newAllowWebDAV))
 		b.WriteString("Enter=save  esc=back\n")
 	case stateEditUser:
-		u, ok := m.selectedUser()
-		if ok {
-			b.WriteString("Edit user: " + u.Username + "\n\n")
+		if m.selUser != nil {
+			b.WriteString("Edit user: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.edRoot.View() + "\n")
 		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with e)\n", m.edEn))
@@ -335,16 +339,14 @@ func (m Model) View() string {
 		b.WriteString(fmt.Sprintf("Allow WebDAV: %v (toggle with alt+w)\n\n", m.edAllowWebDAV))
 		b.WriteString("Enter=save  esc=back\n")
 	case stateSetPassword:
-		u, ok := m.selectedUser()
-		if ok {
-			b.WriteString("Set password for: " + u.Username + "\n\n")
+		if m.selUser != nil {
+			b.WriteString("Set password for: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.setPw.View())
 		b.WriteString("\n\nEnter=save  esc=back\n")
 	case stateKeys:
-		u, ok := m.selectedUser()
-		if ok {
-			b.WriteString("SSH keys for: " + u.Username + "\n\n")
+		if m.selUser != nil {
+			b.WriteString("SSH keys for: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.keyLst.View())
 		b.WriteString("\nAdd key\n")
@@ -563,11 +565,11 @@ func (m Model) updateNewUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateEditUser handles input while editing a user.
 func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
-	u, ok := m.selectedUser()
-	if !ok {
+	if m.selUser == nil {
 		m.st = stateUsers
 		return m, nil
 	}
+	u := *m.selUser
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "esc":
@@ -611,11 +613,11 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateSetPassword handles input while setting a user password.
 func (m Model) updateSetPassword(msg tea.Msg) (tea.Model, tea.Cmd) {
-	u, ok := m.selectedUser()
-	if !ok {
+	if m.selUser == nil {
 		m.st = stateUsers
 		return m, nil
 	}
+	u := *m.selUser
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "esc":
@@ -641,11 +643,11 @@ func (m Model) updateSetPassword(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateKeys handles input on the SSH keys screen.
 func (m Model) updateKeys(msg tea.Msg) (tea.Model, tea.Cmd) {
-	u, ok := m.selectedUser()
-	if !ok {
+	if m.selUser == nil {
 		m.st = stateUsers
 		return m, nil
 	}
+	u := *m.selUser
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "esc":

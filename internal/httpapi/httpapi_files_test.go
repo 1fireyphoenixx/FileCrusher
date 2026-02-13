@@ -76,6 +76,142 @@ func TestHandleFiles_Mkdir_PathExistsAsFile(t *testing.T) {
 	}
 }
 
+// TestHandleFiles_Rename renames a file via PATCH.
+func TestHandleFiles_Rename(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	if err := os.WriteFile(filepath.Join(tmp, "old.txt"), []byte("data"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	body := strings.NewReader(`{"name":"new.txt"}`)
+	r := httptest.NewRequest("PATCH", "/api/files?path=%2Fold.txt", body)
+	r.Header.Set("content-type", "application/json")
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, r.WithContext(ctx))
+
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "old.txt")); !os.IsNotExist(err) {
+		t.Fatalf("old file should not exist")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "new.txt")); err != nil {
+		t.Fatalf("new file should exist: %v", err)
+	}
+}
+
+// TestHandleFiles_Rename_Dir renames a directory via PATCH.
+func TestHandleFiles_Rename_Dir(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	if err := os.MkdirAll(filepath.Join(tmp, "olddir"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	body := strings.NewReader(`{"name":"newdir"}`)
+	r := httptest.NewRequest("PATCH", "/api/files?path=%2Folddir", body)
+	r.Header.Set("content-type", "application/json")
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, r.WithContext(ctx))
+
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	st, err := os.Stat(filepath.Join(tmp, "newdir"))
+	if err != nil {
+		t.Fatalf("newdir should exist: %v", err)
+	}
+	if !st.IsDir() {
+		t.Fatalf("expected directory")
+	}
+}
+
+// TestHandleFiles_Rename_Conflict rejects rename when destination exists.
+func TestHandleFiles_Rename_Conflict(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	if err := os.WriteFile(filepath.Join(tmp, "a.txt"), []byte("a"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "b.txt"), []byte("b"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	body := strings.NewReader(`{"name":"b.txt"}`)
+	r := httptest.NewRequest("PATCH", "/api/files?path=%2Fa.txt", body)
+	r.Header.Set("content-type", "application/json")
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, r.WithContext(ctx))
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+}
+
+// TestHandleFiles_Rename_InvalidName rejects traversal names.
+func TestHandleFiles_Rename_InvalidName(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	if err := os.WriteFile(filepath.Join(tmp, "x.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	for _, bad := range []string{"", ".", "..", "../etc", "a/b"} {
+		body := strings.NewReader(`{"name":"` + bad + `"}`)
+		r := httptest.NewRequest("PATCH", "/api/files?path=%2Fx.txt", body)
+		r.Header.Set("content-type", "application/json")
+		ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+		w := httptest.NewRecorder()
+		s.handleFiles(w, r.WithContext(ctx))
+
+		if w.Code != 400 {
+			t.Fatalf("name=%q: expected 400, got status=%d body=%s", bad, w.Code, strings.TrimSpace(w.Body.String()))
+		}
+	}
+}
+
+// TestHandleFiles_Rename_Root rejects renaming root.
+func TestHandleFiles_Rename_Root(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	body := strings.NewReader(`{"name":"x"}`)
+	r := httptest.NewRequest("PATCH", "/api/files?path=%2F", body)
+	r.Header.Set("content-type", "application/json")
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, r.WithContext(ctx))
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+}
+
+// TestHandleFiles_Rename_NotFound rejects renaming a nonexistent path.
+func TestHandleFiles_Rename_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger()}
+
+	body := strings.NewReader(`{"name":"y.txt"}`)
+	r := httptest.NewRequest("PATCH", "/api/files?path=%2Fghost.txt", body)
+	r.Header.Set("content-type", "application/json")
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, r.WithContext(ctx))
+
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+}
+
 // TestHandleDownload_DirectoryZip zips directories and skips symlinks.
 func TestHandleDownload_DirectoryZip(t *testing.T) {
 	tmp := t.TempDir()

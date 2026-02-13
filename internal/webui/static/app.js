@@ -214,6 +214,29 @@ async function refresh() {
       tdMod.textContent = mod;
       const tdAct = document.createElement('td');
 
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'btn ghost';
+      renameBtn.textContent = 'Rename';
+      renameBtn.dataset.act = 'rename';
+      renameBtn.onclick = async () => {
+        const newName = prompt('New name', name);
+        if (newName == null || newName === name) return;
+        if (!isValidFolderName(newName)) {
+          setErr(filesErr, 'invalid name');
+          return;
+        }
+        try {
+          await api(`/api/files?path=${encodeURIComponent(joinPath(cwd, name))}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: newName.trim() }),
+          });
+          refresh();
+        } catch (e) {
+          setErr(filesErr, e.message);
+        }
+      };
+
       if (e.is_dir) {
         const openBtn = document.createElement('button');
         openBtn.className = 'btn ghost';
@@ -244,6 +267,8 @@ async function refresh() {
         tdAct.appendChild(document.createTextNode(' '));
         tdAct.appendChild(zipBtn);
         tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(renameBtn);
+        tdAct.appendChild(document.createTextNode(' '));
         tdAct.appendChild(delBtn);
       } else {
         const dl = document.createElement('a');
@@ -266,6 +291,8 @@ async function refresh() {
         };
 
         tdAct.appendChild(dl);
+        tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(renameBtn);
         tdAct.appendChild(document.createTextNode(' '));
         tdAct.appendChild(delBtn);
       }
