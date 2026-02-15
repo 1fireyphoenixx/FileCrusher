@@ -181,6 +181,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		if m.st == stateLogin {
 			m.st = stateUsers
+		}
+		if m.st == stateUsers {
 			return m, refreshUsersCmd(m.client)
 		}
 		return m, nil
@@ -203,8 +205,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case stateUsers:
-		var cmd tea.Cmd
-		m.userLst, cmd = m.userLst.Update(msg)
+		// Handle our hotkeys BEFORE the list widget so that keys like
+		// "k" (SSH-keys screen) are not first consumed as vim-style
+		// cursor-up by the underlying list, which shifts the selection.
 		if k, ok := msg.(tea.KeyMsg); ok {
 			switch k.String() {
 			case "q", "ctrl+c":
@@ -279,6 +282,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, refreshAllowlistCmd(m.client)
 			}
 		}
+		var cmd tea.Cmd
+		m.userLst, cmd = m.userLst.Update(msg)
 		return m, cmd
 
 	case stateNewUser:
