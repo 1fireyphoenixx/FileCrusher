@@ -62,15 +62,32 @@ jobs:
             (tar -czf "dist/${base}.tar.gz" "${bin}" README.md filecrusher.example.yaml filecrusher.service)
           fi
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dist-*
+          merge-multiple: true
+
       - name: SHA256SUMS
         shell: bash
         run: |
           set -euo pipefail
-          (cd dist && sha256sum * > SHA256SUMS)
+          (cd artifacts && sha256sum *.tar.gz *.zip > SHA256SUMS)
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*
+            artifacts/*
           generate_release_notes: true
