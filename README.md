@@ -1,29 +1,55 @@
-# FileCrusher
+<div align="center">
+  <h1>🗜️ FileCrusher</h1>
+  <p><b>A high-performance, single-binary file sharing server.</b></p>
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go" alt="Go Version" />
+</div>
 
-Single-binary file sharing server.
+<br />
 
-Included:
-- HTTPS server on `:5132` (Web UI + Admin API)
-- Admin TUI client (connects to `:5132`)
-- SFTP + SCP on SSH (`:2022` by default)
-- Optional FTP/FTPS servers
-- SQLite storage (users, SSH keys, sessions, config)
+**FileCrusher** is a standalone, lightweight server designed to handle file sharing across multiple protocols with zero external dependencies. It includes a built-in HTTPS Web UI, a terminal user interface (TUI) for administration, and supports modern and legacy file transfer protocols out of the box.
 
-## Quick start
+---
+
+## ✨ Features
+
+- **🌐 HTTPS Server**: Integrated Web UI and Admin API running on `:5132`.
+- **🖥️ Admin TUI**: A beautiful terminal interface for user and server management.
+- **🔐 Secure Shell (SSH)**: Built-in SFTP and SCP support (default `:2022`).
+- **📁 Legacy Protocols**: Optional FTP and FTPS servers for broader compatibility.
+- **☁️ WebDAV**: Seamless mounting over HTTPS.
+- **📦 Single Binary**: SQLite storage for users, SSH keys, sessions, and configuration. No database setup required.
+
+---
+
+## 🚀 Quick Start
+
+Get FileCrusher up and running in seconds.
 
 ```bash
+# 1. Build the binary
 go build -o filecrusher ./cmd/filecrusher
 
+# 2. Run initial setup (creates sqlite DB and generates TLS certs)
 ./filecrusher setup --db ./data/filecrusher.db --data-dir ./data
+
+# 3. Prepare your configuration
 cp filecrusher.example.yaml filecrusher.yaml
+
+# 4. Start the server
 ./filecrusher server --config ./filecrusher.yaml
 
+# 5. Access the Admin TUI (in a new terminal)
 ./filecrusher admin --addr https://127.0.0.1:5132
 ```
 
-## Configuration
+---
 
-Runtime config is `filecrusher.yaml` (minimal on purpose). Use `filecrusher.example.yaml` as a template.
+## ⚙️ Configuration
+
+FileCrusher is configured via a minimal `filecrusher.yaml` file. 
+
+<details>
+<summary><b>View Example Configuration</b></summary>
 
 ```yaml
 log:
@@ -46,7 +72,7 @@ http:
 ssh:
   bind: "127.0.0.1"
   port: 2022
-  # Optional. If empty, server uses path stored by `filecrusher setup` in sqlite.
+  # Optional. If empty, server uses paths stored by `filecrusher setup` in sqlite.
   host_key_path: ""
 
 ftp:
@@ -65,129 +91,141 @@ webdav:
   enable: false
   prefix: "/webdav"
 ```
+</details>
 
-CLI flags:
+### CLI Overrides
+You can override configurations via command-line flags:
 - `filecrusher server --config ./filecrusher.yaml` (config-first)
 - `filecrusher server --log-level debug|info|warning|error` (overrides config)
 - `filecrusher server --version`
 
-## Admin operations
+---
 
-Initial setup (admin password is never stored in YAML):
-- Interactive: `./filecrusher setup --db ./data/filecrusher.db --data-dir ./data`
-- Non-interactive:
+## 🛠️ Admin Operations
+
+FileCrusher provides robust admin tools for managing your server seamlessly.
+
+### Initial Setup
+The admin password is **never** stored in your YAML configuration.
+- **Interactive:** `./filecrusher setup --db ./data/filecrusher.db --data-dir ./data`
+- **Non-interactive:**
   - `./filecrusher setup --admin-password '...'`
   - `FILECRUSHER_ADMIN_PASSWORD=... ./filecrusher setup --admin-password-env`
 
-Reset/rotate admin password (local command, edits sqlite):
-- `./filecrusher reset-admin --db ./data/filecrusher.db`
+*Forgot your password?* Reset or rotate it directly from the SQLite DB:
+`./filecrusher reset-admin --db ./data/filecrusher.db`
 
-Admin TUI:
-- Connect: `./filecrusher admin --addr https://127.0.0.1:5132`
-- Users screen keys:
-  - `n` new user, `e` edit, `d` delete, `p` set password
-  - `k` manage SSH keys
-  - `w` manage admin IP allowlist
-
-Admin IP allowlist:
-- Default behavior: if allowlist is empty, admin access is loopback-only.
-- If allowlist has entries, only matching IP/CIDR can use admin endpoints (including admin login).
-- In the allowlist screen:
-  - `alt+a` add CIDR/IP
-  - `alt+d` delete selected
-
-## Web UI
-
-Browse to `https://127.0.0.1:5132/`.
-
-## Protocols
-
-Per-user protocol permissions are managed in the admin TUI:
-- SFTP (SSH subsystem)
-- SCP (SSH exec, non-recursive)
-- FTP / FTPS
-- WebDAV (over HTTPS)
-
-Defaults:
-- SSH (SFTP/SCP): `:2022`
-- FTP: disabled by default
-- FTPS: enabled/disabled via config
-- WebDAV: disabled by default (enable with `webdav.enable: true`)
-
-### WebDAV
-
-WebDAV runs over the same HTTPS port as the Web UI. When enabled, mount at:
+### 💻 Admin TUI
+Connect to the interactive terminal UI:
+```bash
+./filecrusher admin --addr https://127.0.0.1:5132
 ```
+**Shortcuts (Users Screen):**
+- `n` New User | `e` Edit | `d` Delete | `p` Set Password
+- `k` Manage SSH Keys
+- `w` Manage Admin IP Allowlist
+
+### 🛡️ Admin IP Allowlist
+Control who can access the admin endpoints:
+- **Default:** If empty, access is restricted to loopback (localhost) only.
+- **Configured:** If entries exist, only matching IP/CIDRs can access admin endpoints (including login).
+- **Shortcuts:** `alt+a` (Add CIDR/IP), `alt+d` (Delete selected).
+
+---
+
+## 🕸️ Web UI & Protocols
+
+### Web UI
+Access the user-facing web interface by browsing to:
+`https://127.0.0.1:5132/`
+
+### File Transfer Protocols
+Per-user protocol permissions are managed directly in the Admin TUI.
+
+| Protocol | Default Port | Status | Description |
+|----------|-------------|---------|-------------|
+| **SSH** | `:2022` | Enabled | Supports SFTP (subsystem) and SCP (non-recursive exec). |
+| **FTP** | `:2121` | Disabled | Plaintext FTP (enable via config). |
+| **FTPS** | `:2122` | Enabled | Explicit TLS FTP. |
+| **WebDAV** | `:5132` | Disabled | Mountable WebDAV over HTTPS. |
+
+#### WebDAV
+Runs over the same HTTPS port as the Web UI. When enabled (`webdav.enable: true`), mount your drive at:
+```text
 https://your-server:5132/webdav/
 ```
+*Uses HTTP Basic Auth. Compatible with Windows Explorer, macOS Finder, Linux file managers, `cadaver`, `rclone`, etc.*
 
-Uses HTTP Basic Auth with user credentials. Works with:
-- Windows Explorer (Map Network Drive)
-- macOS Finder (Connect to Server)
-- Linux file managers (Nautilus, Dolphin)
-- `cadaver`, `rclone`, etc.
+---
 
-## Security behavior
+## 🔒 Security Behavior
 
-- Upload limit: configurable via `http.max_upload_mb` (default 512 MiB) per request.
-- JSON body limit: 64 KiB.
-- Web delete safety: refuses `DELETE` of `/` (user root).
-- Rate limiting:
-  - admin login and admin endpoints
-  - user login
-- Sessions: expired sessions are periodically pruned.
+FileCrusher is built with safety in mind:
+- **Upload Limits:** Configurable via `http.max_upload_mb` (default `512 MiB` per request).
+- **Payload Limits:** JSON body limit strictly capped at `64 KiB`.
+- **Safety Checks:** Refuses HTTP `DELETE` operations on `/` (user root).
+- **Rate Limiting:** Protects both Admin and User login endpoints.
+- **Session Management:** Expired sessions are periodically pruned.
 
-## Changing TLS certs (HTTPS + FTPS)
+### Managing TLS Certificates (HTTPS + FTPS)
 
-FileCrusher uses a single TLS certificate/key pair for:
-- HTTPS Web/Admin on `http.port`
-- FTPS (explicit TLS)
+FileCrusher uses a single TLS cert/key pair for both Web/Admin HTTPS and FTPS.
+By default, `setup` generates a self-signed cert in your `--data-dir` (e.g., `./data/tls.crt`).
 
-By default, `filecrusher setup` generates a self-signed cert and writes it to your `--data-dir` (typically `./data/tls.crt` and `./data/tls.key`). The SQLite DB stores the file paths.
+**To use your own certificates:**
+1. Update `http.tls.cert_path` and `http.tls.key_path` in `filecrusher.yaml`.
+2. Restart the server.
 
-To change the cert/key:
-1. Config override (recommended): set `http.tls.cert_path` and `http.tls.key_path` in `filecrusher.yaml`, then restart `filecrusher server`.
-2. Replace-in-place: overwrite the existing `./data/tls.crt` and `./data/tls.key` files (or whatever paths your DB points to), then restart.
+*(Alternatively, overwrite the files at the existing paths.)*
 
-If you generated certs previously and your browser reports `ERR_SSL_VERSION_OR_CIPHER_MISMATCH`, regenerate the self-signed cert with:
-`./filecrusher setup --db ./data/filecrusher.db --data-dir ./data --regen-tls`
+> **Troubleshooting:** If you see `ERR_SSL_VERSION_OR_CIPHER_MISMATCH`, regenerate your self-signed cert:
+> `./filecrusher setup --db ./data/filecrusher.db --data-dir ./data --regen-tls`
 
-## Deployment
+---
 
-### systemd
+## 📦 Deployment
 
-A sample unit file is provided in `filecrusher.service`. To install:
+### Systemd Service
+
+A sample unit file (`filecrusher.service`) is provided.
+
+<details>
+<summary><b>Show systemd setup instructions</b></summary>
 
 ```bash
-# Create service user
+# 1. Create service user
 sudo useradd -r -s /sbin/nologin filecrusher
 
-# Install binary and config
+# 2. Install binary and config
 sudo mkdir -p /opt/filecrusher/data
 sudo cp filecrusher /opt/filecrusher/
 sudo cp filecrusher.yaml /opt/filecrusher/
 sudo chown -R filecrusher:filecrusher /opt/filecrusher
 
-# Run initial setup
+# 3. Run initial setup
 sudo -u filecrusher /opt/filecrusher/filecrusher setup \
   --db /opt/filecrusher/data/filecrusher.db \
   --data-dir /opt/filecrusher/data
 
-# Install and enable service
+# 4. Install and enable service
 sudo cp filecrusher.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now filecrusher
 
-# Check status
+# 5. Check status
 sudo systemctl status filecrusher
 sudo journalctl -u filecrusher -f
 ```
+</details>
 
-### Reverse proxy (HAProxy)
+### Reverse Proxies
 
-FileCrusher serves HTTPS directly but can sit behind a reverse proxy for load balancing, centralized TLS termination, or additional security headers.
+FileCrusher can sit behind a reverse proxy for load balancing or centralized TLS termination. FileCrusher reads `X-Forwarded-For` for rate limiting. 
 
-**HAProxy example** (`/etc/haproxy/haproxy.cfg`):
+> **Note:** For SSH/SFTP/FTP protocols, ensure your load balancer is using TCP mode or handle them separately. If terminating TLS at the proxy, bind FileCrusher to `127.0.0.1` in your config.
+
+<details>
+<summary><b>HAProxy Example</b></summary>
 
 ```haproxy
 global
@@ -226,13 +264,10 @@ backend filecrusher
     # FileCrusher backend (HTTPS passthrough or HTTP if TLS terminated at HAProxy)
     server fc1 127.0.0.1:5132 ssl verify none check
 ```
+</details>
 
-**Notes:**
-- FileCrusher reads `X-Forwarded-For` for rate limiting when behind a proxy.
-- For SSH/SFTP/FTP protocols, use TCP mode or separate load balancers.
-- If terminating TLS at HAProxy, configure FileCrusher to bind to localhost only.
-
-### Nginx reverse proxy
+<details>
+<summary><b>Nginx Example</b></summary>
 
 ```nginx
 upstream filecrusher {
@@ -269,3 +304,5 @@ server {
         proxy_set_header Destination $http_destination;
     }
 }
+```
+</details>
