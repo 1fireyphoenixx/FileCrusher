@@ -129,17 +129,19 @@ func (d *mainDriver) ClientDisconnected(cc ftp.ClientContext) {
 	_ = cc
 }
 
-// AuthUser validates credentials and returns a jailed filesystem.
 func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.ClientDriver, error) {
 	ctx := context.Background()
 	u, ok, err := d.db.GetUserByUsername(ctx, user)
 	if err != nil || !ok || !u.Enabled {
+		auth.DummyVerify(pass)
 		return nil, errors.New("invalid credentials")
 	}
 	if d.mode == ModeFTP && !u.AllowFTP {
+		auth.DummyVerify(pass)
 		return nil, errAccessDenied
 	}
 	if d.mode == ModeFTPS && !u.AllowFTPS {
+		auth.DummyVerify(pass)
 		return nil, errAccessDenied
 	}
 
@@ -162,20 +164,10 @@ func (d *mainDriver) GetTLSConfig() (*tls.Config, error) {
 	return d.tlsConfig, nil
 }
 
-// PreAuthUser validates user existence and protocol permissions.
+// PreAuthUser is called on the FTP USER command before PASS.
+// It MUST always succeed to avoid leaking whether a username exists
+// (user enumeration). The real auth check happens in AuthUser.
 func (d *mainDriver) PreAuthUser(cc ftp.ClientContext, user string) error {
-	ctx := context.Background()
-	u, ok, err := d.db.GetUserByUsername(ctx, user)
-	if err != nil || !ok || !u.Enabled {
-		return errors.New("invalid user")
-	}
-	if d.mode == ModeFTP && !u.AllowFTP {
-		return errAccessDenied
-	}
-	if d.mode == ModeFTPS && !u.AllowFTPS {
-		return errAccessDenied
-	}
-
 	// Enforce TLS before proceeding in explicit-FTPS mode.
 	// For implicit FTPS, the control channel is already TLS at accept time.
 	if d.mode == ModeFTPS {

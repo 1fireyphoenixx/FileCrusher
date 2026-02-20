@@ -51,6 +51,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
 			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
+				auth.DummyVerify(string(pass))
 				return nil, errors.New("invalid credentials")
 			}
 			okPw, err := auth.VerifyPassword(string(pass), u.PassHash)

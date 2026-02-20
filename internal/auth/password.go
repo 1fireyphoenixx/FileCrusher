@@ -57,6 +57,25 @@ func HashPassword(password string, p Argon2Params) (string, error) {
 	), nil
 }
 
+// dummyHash is a pre-computed argon2id hash (of "x") using DefaultArgon2Params.
+// Used to burn CPU time when a user is not found, preventing timing side-channels.
+var dummyHash = mustDummyHash()
+
+func mustDummyHash() string {
+	h, err := HashPassword("x", DefaultArgon2Params())
+	if err != nil {
+		panic("auth: failed to generate dummy hash: " + err.Error())
+	}
+	return h
+}
+
+// DummyVerify performs a password hash against a dummy value.
+// Call this when the target user does not exist so the response
+// takes the same time as a real password check.
+func DummyVerify(password string) {
+	_, _ = VerifyPassword(password, dummyHash)
+}
+
 // VerifyPassword checks a plaintext password against a PHC-encoded hash.
 func VerifyPassword(password, encoded string) (bool, error) {
 	if password == "" || encoded == "" {

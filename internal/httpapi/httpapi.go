@@ -198,6 +198,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	u, ok, err := s.DB.GetUserByUsername(ctx, req.Username)
 	if err != nil {
 		s.Logger.Error("login db error", "op", "GetUserByUsername", "username", req.Username, "err", err.Error(), "ms", time.Since(startDB).Milliseconds())
+		auth.DummyVerify(req.Password)
 		if isRetryableDBErr(err) {
 			w.Header().Set(headerRetryAfter, "1")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errMsgTemporarilyUnavail})
@@ -207,6 +208,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok || !u.Enabled {
+		auth.DummyVerify(req.Password)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgInvalidCredentials})
 		return
 	}

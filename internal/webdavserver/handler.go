@@ -69,10 +69,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	u, found, err := h.DB.GetUserByUsername(r.Context(), username)
 	if err != nil {
 		lg.Error("webdav db error", "err", err.Error())
+		auth.DummyVerify(password)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	if !found || !u.Enabled || !u.AllowWebDAV {
+		auth.DummyVerify(password)
 		w.Header().Set("WWW-Authenticate", `Basic realm="FileCrusher WebDAV"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
