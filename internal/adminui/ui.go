@@ -336,7 +336,7 @@ func (m Model) View() string {
 			b.WriteString("Edit user: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.edRoot.View() + "\n")
-		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with e)\n", m.edEn))
+		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with alt+e)\n", m.edEn))
 		b.WriteString(fmt.Sprintf("Allow SFTP:   %v (toggle with alt+s)\n", m.edAllowSFTP))
 		b.WriteString(fmt.Sprintf("Allow FTP:    %v (toggle with alt+f)\n", m.edAllowFTP))
 		b.WriteString(fmt.Sprintf("Allow FTPS:   %v (toggle with alt+t)\n", m.edAllowFTPS))
@@ -580,7 +580,7 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.st = stateUsers
 			return m, refreshUsersCmd(m.client)
-		case "e":
+		case "alt+e":
 			m.edEn = !m.edEn
 			return m, nil
 		case "alt+s":
