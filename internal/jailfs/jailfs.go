@@ -5,7 +5,9 @@ package jailfs
 import (
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"filecrusher/internal/fsutil"
@@ -30,9 +32,13 @@ func (f *FS) Create(name string) (afero.File, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return nil, err
+		return nil, sanitizePathErr(err, filepath.Dir(name))
 	}
-	return f.osfs.Create(p)
+	fh, err := f.osfs.Create(p)
+	if err != nil {
+		return nil, sanitizePathErr(err, name)
+	}
+	return fh, nil
 }
 
 // Mkdir creates a directory under the jailed root.
@@ -41,7 +47,10 @@ func (f *FS) Mkdir(name string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.Mkdir(p, perm)
+	if err := f.osfs.Mkdir(p, perm); err != nil {
+		return sanitizePathErr(err, name)
+	}
+	return nil
 }
 
 // MkdirAll creates a directory tree under the jailed root.
@@ -50,7 +59,10 @@ func (f *FS) MkdirAll(path string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.MkdirAll(p, perm)
+	if err := f.osfs.MkdirAll(p, perm); err != nil {
+		return sanitizePathErr(err, path)
+	}
+	return nil
 }
 
 // Open opens a file for reading under the jailed root.
@@ -59,7 +71,11 @@ func (f *FS) Open(name string) (afero.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return f.osfs.Open(p)
+	fh, err := f.osfs.Open(p)
+	if err != nil {
+		return nil, sanitizePathErr(err, name)
+	}
+	return fh, nil
 }
 
 // OpenFile opens a file with the given flags within the jailed root.
@@ -70,10 +86,14 @@ func (f *FS) OpenFile(name string, flag int, perm os.FileMode) (afero.File, erro
 	}
 	if flag&os.O_CREATE != 0 {
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			return nil, err
+			return nil, sanitizePathErr(err, filepath.Dir(name))
 		}
 	}
-	return f.osfs.OpenFile(p, flag, perm)
+	fh, err := f.osfs.OpenFile(p, flag, perm)
+	if err != nil {
+		return nil, sanitizePathErr(err, name)
+	}
+	return fh, nil
 }
 
 // Remove deletes a file under the jailed root.
@@ -82,7 +102,10 @@ func (f *FS) Remove(name string) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.Remove(p)
+	if err := f.osfs.Remove(p); err != nil {
+		return sanitizePathErr(err, name)
+	}
+	return nil
 }
 
 // RemoveAll recursively deletes a path under the jailed root.
@@ -91,7 +114,10 @@ func (f *FS) RemoveAll(path string) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.RemoveAll(p)
+	if err := f.osfs.RemoveAll(p); err != nil {
+		return sanitizePathErr(err, path)
+	}
+	return nil
 }
 
 // Rename moves a path within the jailed root.
@@ -105,9 +131,12 @@ func (f *FS) Rename(oldname, newname string) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(newp), 0o700); err != nil {
-		return err
+		return sanitizePathErr(err, filepath.Dir(newname))
 	}
-	return f.osfs.Rename(oldp, newp)
+	if err := f.osfs.Rename(oldp, newp); err != nil {
+		return sanitizeLinkErr(err, oldname, newname)
+	}
+	return nil
 }
 
 // Stat returns file info for a path under the jailed root.
@@ -116,7 +145,11 @@ func (f *FS) Stat(name string) (os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return f.osfs.Stat(p)
+	info, err := f.osfs.Stat(p)
+	if err != nil {
+		return nil, sanitizePathErr(err, name)
+	}
+	return info, nil
 }
 
 // Name identifies this filesystem implementation.
@@ -128,7 +161,10 @@ func (f *FS) Chmod(name string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.Chmod(p, mode)
+	if err := f.osfs.Chmod(p, mode); err != nil {
+		return sanitizePathErr(err, name)
+	}
+	return nil
 }
 
 // Chown is not supported for this filesystem implementation.
@@ -145,10 +181,35 @@ func (f *FS) Chtimes(name string, atime time.Time, mtime time.Time) error {
 	if err != nil {
 		return err
 	}
-	return f.osfs.Chtimes(p, atime, mtime)
+	if err := f.osfs.Chtimes(p, atime, mtime); err != nil {
+		return sanitizePathErr(err, name)
+	}
+	return nil
 }
 
 // local resolves a user path to a safe local path under root.
 func (f *FS) local(name string) (string, error) {
 	return fsutil.ResolveWithinRoot(f.root, name)
+}
+
+func sanitizePathErr(err error, userPath string) error {
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return &os.PathError{Op: pe.Op, Path: virtualPath(userPath), Err: pe.Err}
+	}
+	return err
+}
+
+func sanitizeLinkErr(err error, oldPath, newPath string) error {
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return &os.LinkError{Op: le.Op, Old: virtualPath(oldPath), New: virtualPath(newPath), Err: le.Err}
+	}
+	return sanitizePathErr(err, oldPath)
+}
+
+func virtualPath(userPath string) string {
+	normalized := strings.ReplaceAll(userPath, "\\", "/")
+	normalized = strings.TrimLeft(normalized, "/")
+	return path.Clean("/" + normalized)
 }
