@@ -15,6 +15,8 @@ http:
   port: 5132
   # Max upload size for the Web UI (per request).
   max_upload_mb: 512
+  # Web UI theme: "simple" (classic) or "modern" (contemporary look).
+  theme: "simple"
   tls:
     # TLS certificate used by BOTH:
     # - the HTTPS Web/Admin server (this port)

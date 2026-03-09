@@ -41,6 +41,8 @@ type Server struct {
 	WebDAVEnable bool
 	WebDAVPrefix string
 
+	UITheme string
+
 	adminLimiter *fixedWindowLimiter
 	userLimiter  *fixedWindowLimiter
 }
@@ -159,8 +161,13 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "web ui missing"})
 		return
 	}
-	// Keep the web UI static, but inject the build version for visibility.
+	// Keep the web UI static, but inject the build version and theme.
+	theme := s.UITheme
+	if theme == "" {
+		theme = "simple"
+	}
 	page := strings.ReplaceAll(string(b), "{{VERSION}}", "v"+version.Version)
+	page = strings.ReplaceAll(page, "{{THEME}}", theme)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(page))
 }

@@ -49,6 +49,8 @@ type Options struct {
 
 	WebDAVEnable bool
 	WebDAVPrefix string
+
+	UITheme string
 }
 
 // Run validates options, loads stored configuration, and starts servers.
@@ -134,6 +136,7 @@ func Run(ctx context.Context, opt Options) error {
 		MaxUploadBytes: opt.MaxUploadBytes,
 		WebDAVEnable:   opt.WebDAVEnable,
 		WebDAVPrefix:   opt.WebDAVPrefix,
+		UITheme:        opt.UITheme,
 	}
 
 	// Buffer for HTTP, SFTP, FTP, FTPS, implicit FTPS.
