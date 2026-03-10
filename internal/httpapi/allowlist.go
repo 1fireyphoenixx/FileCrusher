@@ -6,8 +6,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-
-	"filecrusher/internal/db"
 )
 
 // clientIP extracts the remote IP without a port.
@@ -54,9 +52,9 @@ func parseCIDRorIP(s string) (*net.IPNet, error) {
 }
 
 // isAdminAllowedByIP checks the admin allowlist against the caller IP.
-func isAdminAllowedByIP(d *db.DB, r *http.Request) (bool, error) {
-	// Default: allow loopback only unless allowlist has entries.
-	entries, err := d.ListAdminIPAllowlist(r.Context())
+// The allowlist is backed by a TTL cache to avoid querying on every request.
+func (s *Server) isAdminAllowedByIP(r *http.Request) (bool, error) {
+	entries, err := s.cachedAllowlist(r.Context())
 	if err != nil {
 		return false, err
 	}

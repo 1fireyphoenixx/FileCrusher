@@ -6,16 +6,35 @@
     <title>FileCrusher</title>
     <link rel="stylesheet" href="/static/app.css" />
     <link rel="stylesheet" href="/static/modern.css" />
+    <script>
+    if (document.documentElement.dataset.theme === 'modern') {
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+      document.head.appendChild(l);
+    }
+    </script>
   </head>
   <body>
     <main class="app">
       <header class="topbar">
-        <div class="brand">FileCrusher <span id="appVersion" class="version">{{VERSION}}</span></div>
-        <button id="logout" class="btn ghost" hidden>Logout</button>
+        <div class="brand">
+          <i data-lucide="hard-drive" class="brand-icon"></i>
+          FileCrusher
+          <span id="appVersion" class="version">{{VERSION}}</span>
+        </div>
+        <button id="logout" class="btn ghost" hidden>
+          <i data-lucide="log-out" class="btn-icon"></i>
+          <span class="btn-label">Logout</span>
+        </button>
       </header>
 
-      <section id="login" class="card">
-        <h1>Sign in</h1>
+      <section id="login" class="card login-card">
+        <div class="login-header">
+          <i data-lucide="shield" class="login-icon"></i>
+          <h1>Sign in</h1>
+          <p class="login-sub">Access your files securely</p>
+        </div>
         <form id="loginForm">
           <label>
             <span>Username</span>
@@ -31,16 +50,26 @@
       </section>
 
       <section id="files" class="card" hidden>
-        <div class="row">
+        <div class="row toolbar">
            <div class="path" id="cwd"></div>
            <div class="actions">
-             <button id="newFolder" class="btn secondary" type="button">New folder</button>
-             <a id="downloadFolder" class="btn secondary" href="#">Download folder</a>
+             <button id="newFolder" class="btn secondary" type="button">
+               <i data-lucide="folder-plus" class="btn-icon"></i>
+               <span class="btn-label">New folder</span>
+             </button>
+             <a id="downloadFolder" class="btn secondary" href="#">
+               <i data-lucide="download" class="btn-icon"></i>
+               <span class="btn-label">Download</span>
+             </a>
              <label class="btn secondary">
-               Upload
+               <i data-lucide="upload" class="btn-icon"></i>
+               <span class="btn-label">Upload</span>
                <input id="upload" type="file" multiple hidden />
              </label>
-             <button id="refresh" class="btn secondary" type="button">Refresh</button>
+             <button id="refresh" class="btn secondary" type="button">
+               <i data-lucide="refresh-cw" class="btn-icon"></i>
+               <span class="btn-label">Refresh</span>
+             </button>
            </div>
          </div>
 
@@ -71,5 +100,13 @@
     </main>
 
     <script src="/static/app.js"></script>
+    <script>
+    if (document.documentElement.dataset.theme === 'modern') {
+      var s = document.createElement('script');
+      s.src = 'https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js';
+      s.onload = function () { lucide.createIcons(); };
+      document.body.appendChild(s);
+    }
+    </script>
   </body>
 </html>

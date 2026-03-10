@@ -3,6 +3,7 @@ package httpapi
 import (
 	"archive/zip"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"filecrusher/internal/auth"
@@ -45,6 +47,18 @@ type Server struct {
 
 	adminLimiter *fixedWindowLimiter
 	userLimiter  *fixedWindowLimiter
+
+	// cachedIndex is the pre-rendered index.html page, computed once at startup.
+	cachedIndex []byte
+
+	// Session cache: avoids 2 DB queries per authenticated request.
+	sessionMu    sync.RWMutex
+	sessionCache map[string]*cachedSession
+
+	// Admin allowlist cache: avoids a DB query per admin request.
+	allowlistMu     sync.RWMutex
+	allowlistCache  []db.AdminIPAllowEntry
+	allowlistExpiry time.Time
 }
 
 const (
@@ -92,12 +106,29 @@ func (s *Server) ListenAndServeTLS() error {
 		s.userLimiter = newFixedWindowLimiter(120, 1*time.Minute)
 	}
 
+	theme := s.UITheme
+	if theme == "" {
+		theme = "simple"
+	}
+	idxBytes, err := webui.StaticFS.ReadFile("static/index.html")
+	if err != nil {
+		return err
+	}
+	s.cachedIndex = []byte(strings.NewReplacer(
+		"{{VERSION}}", "v"+version.Version,
+		"{{THEME}}", theme,
+	).Replace(string(idxBytes)))
+
+	s.initCaches()
+
 	mux := http.NewServeMux()
 	staticFS, err := fs.Sub(webui.StaticFS, "static")
 	if err != nil {
 		return err
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	mux.Handle("/static/", withCacheControl(
+		http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))),
+	))
 	mux.HandleFunc("/", s.serveIndex)
 
 	mux.HandleFunc("/api/login", s.handleLogin)
@@ -130,7 +161,11 @@ func (s *Server) ListenAndServeTLS() error {
 		s.Logger.Info("webdav enabled", "prefix", prefix)
 	}
 
-	h := withSecurityHeaders(mux)
+	csp := "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	if theme == "modern" {
+		csp = "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	}
+	h := withSecurityHeaders(mux, csp)
 	h = s.withRecover(h)
 	h = s.withRequestLog(h)
 	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
@@ -138,38 +173,32 @@ func (s *Server) ListenAndServeTLS() error {
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           h,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    8 << 10, // 8 KiB
 		ReadHeaderTimeout: 5 * time.Second,
 		// NOTE: Avoid ReadTimeout/WriteTimeout here; this server supports large uploads.
 		// ReadHeaderTimeout + IdleTimeout are still enforced.
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CurvePreferences: []tls.CurveID{
+				tls.X25519,
+				tls.CurveP256,
+			},
+		},
 	}
 
 	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
 }
 
-// serveIndex serves the embedded admin web UI landing page.
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := webui.StaticFS.ReadFile("static/index.html")
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "web ui missing"})
-		return
-	}
-	// Keep the web UI static, but inject the build version and theme.
-	theme := s.UITheme
-	if theme == "" {
-		theme = "simple"
-	}
-	page := strings.ReplaceAll(string(b), "{{VERSION}}", "v"+version.Version)
-	page = strings.ReplaceAll(page, "{{THEME}}", theme)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(page))
+	_, _ = w.Write(s.cachedIndex)
 }
 
 // handleLogin authenticates a user and issues a session cookie.
@@ -260,6 +289,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if tok, ok := readSessionCookie(r); ok {
+		s.evictSession(tok)
 		_ = s.DB.DeleteSession(ctx, tok)
 	}
 	clearSessionCookie(w)
@@ -272,7 +302,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
-	allowed, err := isAdminAllowedByIP(s.DB, r)
+	allowed, err := s.isAdminAllowedByIP(r)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
@@ -331,16 +361,16 @@ func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok, ok := readAdminCookie(r); ok {
+		s.evictSession(tok)
 		_ = s.DB.DeleteSession(r.Context(), tok)
 	}
 	clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
-// withAdmin enforces allowlist, rate limit, and admin authentication.
 func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		allowed, err := isAdminAllowedByIP(s.DB, r)
+		allowed, err := s.isAdminAllowedByIP(r)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
@@ -359,6 +389,15 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+
+		if cs, ok := s.getCachedSession(tok); ok {
+			if cs.session.Kind == "admin" && cs.session.ExpiresAt > time.Now().Unix() {
+				next(w, r)
+				return
+			}
+			s.evictSession(tok)
+		}
+
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
@@ -369,6 +408,7 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+		s.putCachedSession(tok, sess, nil)
 		next(w, r)
 	}
 }
@@ -403,6 +443,7 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "add failed"})
 			return
 		}
+		s.invalidateAllowlistCache()
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "cidr": n.String()})
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
@@ -429,6 +470,7 @@ func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 		return
 	}
+	s.invalidateAllowlistCache()
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
@@ -667,7 +709,6 @@ const (
 	ctxUserRoot ctxKey = "user_root"
 )
 
-// withUser enforces user authentication and injects user context.
 func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := readSessionCookie(r)
@@ -675,6 +716,18 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+
+		if cs, ok := s.getCachedSession(tok); ok {
+			sess := cs.session
+			if sess.Kind == "user" && sess.ExpiresAt > time.Now().Unix() && cs.user != nil && cs.user.Enabled {
+				ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
+				ctx = context.WithValue(ctx, ctxUserRoot, cs.user.RootPath)
+				next(w, r.WithContext(ctx))
+				return
+			}
+			s.evictSession(tok)
+		}
+
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
@@ -692,6 +745,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		s.putCachedSession(tok, sess, u)
 		ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
 		ctx = context.WithValue(ctx, ctxUserRoot, u.RootPath)
 		next(w, r.WithContext(ctx))
@@ -1001,7 +1055,7 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 
 // readMultipartFile parses and returns the uploaded file for a form field.
 func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MiB threshold; larger files stream via temp files
 		return nil, nil, err
 	}
 	return r.FormFile(field)
@@ -1095,13 +1149,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// withSecurityHeaders adds common security headers for browser clients.
-func withSecurityHeaders(next http.Handler) http.Handler {
+func withCacheControl(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("cache-control", "public, max-age=86400")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withSecurityHeaders(next http.Handler, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-content-type-options", "nosniff")
 		w.Header().Set("x-frame-options", "DENY")
 		w.Header().Set("referrer-policy", "no-referrer")
-		w.Header().Set("content-security-policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("content-security-policy", csp)
 		if r.TLS != nil {
 			w.Header().Set("strict-transport-security", "max-age=31536000")
 		}
