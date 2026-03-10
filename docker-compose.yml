@@ -1,0 +1,36 @@
+services:
+  filecrusher:
+    build: .
+    image: filecrusher:latest
+    user: "10001:10001"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - filecrusher_data:/data
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 134217728
+      - type: tmpfs
+        target: /etc/filecrusher
+        tmpfs:
+          size: 1048576
+    environment:
+      FILECRUSHER_ADMIN_PASSWORD: "${FILECRUSHER_ADMIN_PASSWORD:?set FILECRUSHER_ADMIN_PASSWORD}"
+      FILECRUSHER_DB_PATH: "/data/filecrusher.db"
+      FILECRUSHER_DATA_DIR: "/data"
+    ports:
+      - "5132:5132"
+      - "2022:2022"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+volumes:
+  filecrusher_data:

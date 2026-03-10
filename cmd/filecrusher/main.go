@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"filecrusher/internal/cmd/admin"
+	"filecrusher/internal/cmd/configcmd"
 	"filecrusher/internal/cmd/resetadmin"
 	"filecrusher/internal/cmd/server"
 	"filecrusher/internal/cmd/setup"
@@ -37,6 +38,8 @@ func run(argv []string) error {
 		return server.Run(argv[2:])
 	case "admin":
 		return admin.Run(argv[2:])
+	case "config":
+		return configcmd.Run(argv[2:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -48,5 +51,5 @@ func run(argv []string) error {
 
 // usage prints the canonical CLI syntax to stderr.
 func usage() {
-	fmt.Fprintln(os.Stderr, "filecrusher <setup|reset-admin|server|admin> [flags]")
+	fmt.Fprintln(os.Stderr, "filecrusher <setup|server|admin|config|reset-admin> [flags]")
 }
