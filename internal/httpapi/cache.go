@@ -17,6 +17,10 @@ const (
 	// Mutations (add/delete) invalidate immediately; this TTL only governs
 	// the periodic background refresh.
 	allowlistCacheTTL = 5 * time.Minute
+
+	// maxSessionCacheSize caps the number of cached sessions to prevent
+	// unbounded memory growth. When exceeded, the oldest entry is evicted.
+	maxSessionCacheSize = 1024
 )
 
 // cachedSession holds a looked-up session and its associated user.
@@ -43,6 +47,7 @@ func (s *Server) getCachedSession(token string) (*cachedSession, bool) {
 }
 
 // putCachedSession stores a session lookup result in the cache.
+// If the cache exceeds maxSessionCacheSize, the oldest entry is evicted.
 func (s *Server) putCachedSession(token string, sess *db.Session, user *db.User) {
 	s.sessionMu.Lock()
 	s.sessionCache[token] = &cachedSession{
@@ -50,13 +55,47 @@ func (s *Server) putCachedSession(token string, sess *db.Session, user *db.User)
 		user:      user,
 		fetchedAt: time.Now(),
 	}
+	if len(s.sessionCache) > maxSessionCacheSize {
+		s.evictOldestLocked()
+	}
 	s.sessionMu.Unlock()
+}
+
+// evictOldestLocked removes the oldest entry from the session cache.
+// Caller must hold s.sessionMu write lock.
+func (s *Server) evictOldestLocked() {
+	var oldestToken string
+	var oldestTime time.Time
+	first := true
+	for tok, cs := range s.sessionCache {
+		if first || cs.fetchedAt.Before(oldestTime) {
+			oldestToken = tok
+			oldestTime = cs.fetchedAt
+			first = false
+		}
+	}
+	if !first {
+		delete(s.sessionCache, oldestToken)
+	}
 }
 
 // evictSession removes a token from the session cache.
 func (s *Server) evictSession(token string) {
 	s.sessionMu.Lock()
 	delete(s.sessionCache, token)
+	s.sessionMu.Unlock()
+}
+
+// evictSessionsByUserID removes all cached sessions belonging to a given
+// user ID. Used when a user is disabled or deleted to ensure the cache
+// cannot serve stale grants.
+func (s *Server) evictSessionsByUserID(userID int64) {
+	s.sessionMu.Lock()
+	for tok, cs := range s.sessionCache {
+		if cs.session != nil && cs.session.SubjectID == userID {
+			delete(s.sessionCache, tok)
+		}
+	}
 	s.sessionMu.Unlock()
 }
 
