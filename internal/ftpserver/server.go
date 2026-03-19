@@ -151,7 +151,7 @@ func (d *mainDriver) AuthUser(cc ftp.ClientContext, user, pass string) (ftp.Clie
 	}
 
 	cc.SetPath("/")
-	return jailfs.New(u.RootPath), nil
+	return newQuotaFS(jailfs.New(u.RootPath), u.RootPath, u.QuotaBytes), nil
 }
 
 // GetTLSConfig provides TLS settings for FTPS and optional TLS in FTP.

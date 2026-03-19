@@ -8,13 +8,17 @@ import (
 	"path/filepath"
 
 	"filecrusher/internal/fsutil"
+	"filecrusher/internal/quota"
 	"github.com/pkg/sftp"
 )
 
 // JailedHandlers implements sftp.Handlers with root path jail enforcement.
 type JailedHandlers struct {
-	Root string
+	Root       string
+	QuotaBytes int64
 }
+
+var errQuotaExceeded = errors.New("quota exceeded")
 
 // Fileread opens a file for reading within the jailed root.
 func (h JailedHandlers) Fileread(r *sftp.Request) (io.ReaderAt, error) {
@@ -62,7 +66,38 @@ func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return f, nil
+	if h.QuotaBytes <= 0 {
+		return f, nil
+	}
+	maxFileSize, _, err := quota.MaxFileSize(h.Root, local, h.QuotaBytes)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &quotaWriterAt{f: f, maxFileSize: maxFileSize}, nil
+}
+
+type quotaWriterAt struct {
+	f           *os.File
+	maxFileSize int64
+}
+
+func (w *quotaWriterAt) WriteAt(p []byte, off int64) (int, error) {
+	if off < 0 {
+		return 0, errors.New("invalid write offset")
+	}
+	end := off + int64(len(p))
+	if end < 0 {
+		return 0, errQuotaExceeded
+	}
+	if end > w.maxFileSize {
+		return 0, errQuotaExceeded
+	}
+	return w.f.WriteAt(p, off)
+}
+
+func (w *quotaWriterAt) Close() error {
+	return w.f.Close()
 }
 
 // Filecmd handles filesystem mutations like rename, mkdir, and remove.

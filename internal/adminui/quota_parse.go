@@ -4,8 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 )
+
+var quotaDisplayUnits = []struct {
+	name  string
+	bytes int64
+}{
+	{name: "PiB", bytes: 1 << 50},
+	{name: "TiB", bytes: 1 << 40},
+	{name: "GiB", bytes: 1 << 30},
+	{name: "MiB", bytes: 1 << 20},
+	{name: "KiB", bytes: 1 << 10},
+}
 
 var quotaMultipliers = map[string]int64{
 	"":    1,
@@ -131,4 +143,31 @@ func decimalToScaledInt(numPart string, scale int64) (int64, error) {
 		return 0, errors.New("quota is too large")
 	}
 	return q.Int64(), nil
+}
+
+func formatQuotaBytes(v int64) string {
+	if v <= 0 {
+		return "unlimited"
+	}
+	for _, u := range quotaDisplayUnits {
+		if v >= u.bytes {
+			whole := v / u.bytes
+			frac := ((v % u.bytes) * 10) / u.bytes
+			if frac == 0 {
+				return fmt.Sprintf("%d %s", whole, u.name)
+			}
+			return fmt.Sprintf("%d.%d %s", whole, frac, u.name)
+		}
+	}
+	if v == 1 {
+		return "1 byte"
+	}
+	return fmt.Sprintf("%d bytes", v)
+}
+
+func formatQuotaBytesForInput(v int64) string {
+	if v <= 0 {
+		return "0"
+	}
+	return strconv.FormatInt(v, 10)
 }

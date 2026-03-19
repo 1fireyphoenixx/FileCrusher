@@ -47,3 +47,22 @@ func TestParseQuotaBytes_Invalid(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatQuotaBytes(t *testing.T) {
+	tests := []struct {
+		in   int64
+		want string
+	}{
+		{in: 0, want: "unlimited"},
+		{in: 1, want: "1 byte"},
+		{in: 999, want: "999 bytes"},
+		{in: 1024, want: "1 KiB"},
+		{in: 1536, want: "1.5 KiB"},
+		{in: 10 * (1 << 30), want: "10 GiB"},
+	}
+	for _, tc := range tests {
+		if got := formatQuotaBytes(tc.in); got != tc.want {
+			t.Fatalf("input %d: got %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
