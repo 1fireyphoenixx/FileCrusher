@@ -149,7 +149,7 @@ func handleConn(d *db.DB, conf *ssh.ServerConfig, netConn net.Conn, lg *slog.Log
 						}
 						lg.Debug("sftp start", "user", u.Username)
 						_ = req.Reply(true, nil)
-						h := JailedHandlers{Root: root}
+						h := JailedHandlers{Root: root, QuotaBytes: u.QuotaBytes}
 						s := sftp.NewRequestServer(ch, sftp.Handlers{FileGet: h, FilePut: h, FileCmd: h, FileList: h})
 						_ = s.Serve()
 						return

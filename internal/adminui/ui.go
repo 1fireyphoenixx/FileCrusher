@@ -4,7 +4,6 @@ package adminui
 import (
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"filecrusher/internal/adminapi"
@@ -117,7 +116,7 @@ func New(client *adminapi.Client, addr string) Model {
 	m.setPw.Prompt = "New password: "
 	m.setQt = textinput.New()
 	m.setQt.Placeholder = "e.g. 10GB, 512MiB, 0"
-	m.setQt.Prompt = "Quota bytes (0 = unlimited): "
+	m.setQt.Prompt = "Quota (0 = unlimited): "
 
 	m.addKey = textinput.New()
 	m.addKey.Placeholder = "ssh-ed25519 AAAA..."
@@ -337,7 +336,7 @@ func (m Model) View() string {
 		b.WriteString(m.newUsername.View() + "\n")
 		b.WriteString(m.newPassword.View() + "\n")
 		b.WriteString(m.newRoot.View() + "\n")
-		b.WriteString(fmt.Sprintf("Quota bytes: %d\n", m.newQuota))
+		b.WriteString(fmt.Sprintf("Quota: %s\n", formatQuotaBytes(m.newQuota)))
 		b.WriteString(fmt.Sprintf("Allow SFTP:   %v (toggle with alt+s)\n", m.newAllowSFTP))
 		b.WriteString(fmt.Sprintf("Allow FTP:    %v (toggle with alt+f)\n", m.newAllowFTP))
 		b.WriteString(fmt.Sprintf("Allow FTPS:   %v (toggle with alt+t)\n", m.newAllowFTPS))
@@ -349,7 +348,7 @@ func (m Model) View() string {
 			b.WriteString("Edit user: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.edRoot.View() + "\n")
-		b.WriteString(fmt.Sprintf("Quota bytes: %d (set with alt+q)\n", m.edQuota))
+		b.WriteString(fmt.Sprintf("Quota: %s (set with alt+q)\n", formatQuotaBytes(m.edQuota)))
 		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with alt+e)\n", m.edEn))
 		b.WriteString(fmt.Sprintf("Allow SFTP:   %v (toggle with alt+s)\n", m.edAllowSFTP))
 		b.WriteString(fmt.Sprintf("Allow FTP:    %v (toggle with alt+f)\n", m.edAllowFTP))
@@ -400,9 +399,9 @@ type userItem adminapi.User
 func (u userItem) Title() string { return u.Username }
 func (u userItem) Description() string {
 	return fmt.Sprintf(
-		"root=%s quota=%d enabled=%v sftp=%v ftp=%v ftps=%v scp=%v webdav=%v",
+		"root=%s quota=%s enabled=%v sftp=%v ftp=%v ftps=%v scp=%v webdav=%v",
 		u.RootPath,
-		u.QuotaBytes,
+		formatQuotaBytes(u.QuotaBytes),
 		u.Enabled,
 		u.AllowSFTP,
 		u.AllowFTP,
@@ -623,7 +622,7 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "alt+q":
 			m.st = stateSetQuota
-			m.setQt.SetValue(strconv.FormatInt(m.edQuota, 10))
+			m.setQt.SetValue(formatQuotaBytesForInput(m.edQuota))
 			m.setQt.Focus()
 			return m, nil
 		case "enter":
