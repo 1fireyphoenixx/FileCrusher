@@ -4,6 +4,7 @@ package adminui
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"filecrusher/internal/adminapi"
@@ -22,6 +23,7 @@ const (
 	stateNewUser
 	stateEditUser
 	stateSetPassword
+	stateSetQuota
 	stateKeys
 	stateAllowlist
 )
@@ -42,6 +44,7 @@ type Model struct {
 	newUsername    textinput.Model
 	newPassword    textinput.Model
 	newRoot        textinput.Model
+	newQuota       int64
 	newAllowSFTP   bool
 	newAllowFTP    bool
 	newAllowFTPS   bool
@@ -49,6 +52,7 @@ type Model struct {
 	newAllowWebDAV bool
 
 	edRoot        textinput.Model
+	edQuota       int64
 	edEn          bool
 	edAllowSFTP   bool
 	edAllowFTP    bool
@@ -57,6 +61,7 @@ type Model struct {
 	edAllowWebDAV bool
 
 	setPw textinput.Model
+	setQt textinput.Model
 
 	selUser *adminapi.User // snapshot of the user selected when entering a sub-screen
 
@@ -110,6 +115,9 @@ func New(client *adminapi.Client, addr string) Model {
 	m.setPw.Placeholder = "new password"
 	m.setPw.EchoMode = textinput.EchoPassword
 	m.setPw.Prompt = "New password: "
+	m.setQt = textinput.New()
+	m.setQt.Placeholder = "e.g. 10GB, 512MiB, 0"
+	m.setQt.Prompt = "Quota bytes (0 = unlimited): "
 
 	m.addKey = textinput.New()
 	m.addKey.Placeholder = "ssh-ed25519 AAAA..."
@@ -220,6 +228,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.newUsername.SetValue("")
 				m.newPassword.SetValue("")
 				m.newRoot.SetValue("")
+				m.newQuota = 0
 				m.newAllowSFTP = true
 				m.newAllowFTP = false
 				m.newAllowFTPS = false
@@ -236,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.st = stateEditUser
 				m.err = ""
 				m.edRoot.SetValue(u.RootPath)
+				m.edQuota = u.QuotaBytes
 				m.edEn = u.Enabled
 				m.edAllowSFTP = u.AllowSFTP
 				m.edAllowFTP = u.AllowFTP
@@ -292,6 +302,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateEditUser(msg)
 	case stateSetPassword:
 		return m.updateSetPassword(msg)
+	case stateSetQuota:
+		return m.updateSetQuota(msg)
 	case stateKeys:
 		return m.updateKeys(msg)
 	case stateAllowlist:
@@ -325,6 +337,7 @@ func (m Model) View() string {
 		b.WriteString(m.newUsername.View() + "\n")
 		b.WriteString(m.newPassword.View() + "\n")
 		b.WriteString(m.newRoot.View() + "\n")
+		b.WriteString(fmt.Sprintf("Quota bytes: %d\n", m.newQuota))
 		b.WriteString(fmt.Sprintf("Allow SFTP:   %v (toggle with alt+s)\n", m.newAllowSFTP))
 		b.WriteString(fmt.Sprintf("Allow FTP:    %v (toggle with alt+f)\n", m.newAllowFTP))
 		b.WriteString(fmt.Sprintf("Allow FTPS:   %v (toggle with alt+t)\n", m.newAllowFTPS))
@@ -336,6 +349,7 @@ func (m Model) View() string {
 			b.WriteString("Edit user: " + m.selUser.Username + "\n\n")
 		}
 		b.WriteString(m.edRoot.View() + "\n")
+		b.WriteString(fmt.Sprintf("Quota bytes: %d (set with alt+q)\n", m.edQuota))
 		b.WriteString(fmt.Sprintf("Enabled: %v (toggle with alt+e)\n", m.edEn))
 		b.WriteString(fmt.Sprintf("Allow SFTP:   %v (toggle with alt+s)\n", m.edAllowSFTP))
 		b.WriteString(fmt.Sprintf("Allow FTP:    %v (toggle with alt+f)\n", m.edAllowFTP))
@@ -349,6 +363,13 @@ func (m Model) View() string {
 		}
 		b.WriteString(m.setPw.View())
 		b.WriteString("\n\nEnter=save  esc=back\n")
+	case stateSetQuota:
+		if m.selUser != nil {
+			b.WriteString("Set quota for: " + m.selUser.Username + "\n\n")
+		}
+		b.WriteString(m.setQt.View())
+		b.WriteString("\n\nAccepted: B, KB, MB, GB, TB, KiB, MiB, GiB, TiB\n")
+		b.WriteString("Enter=save  esc=back\n")
 	case stateKeys:
 		if m.selUser != nil {
 			b.WriteString("SSH keys for: " + m.selUser.Username + "\n\n")
@@ -379,8 +400,9 @@ type userItem adminapi.User
 func (u userItem) Title() string { return u.Username }
 func (u userItem) Description() string {
 	return fmt.Sprintf(
-		"root=%s enabled=%v sftp=%v ftp=%v ftps=%v scp=%v webdav=%v",
+		"root=%s quota=%d enabled=%v sftp=%v ftp=%v ftps=%v scp=%v webdav=%v",
 		u.RootPath,
+		u.QuotaBytes,
 		u.Enabled,
 		u.AllowSFTP,
 		u.AllowFTP,
@@ -529,6 +551,7 @@ func (m Model) updateNewUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.newUsername.Value(),
 						m.newPassword.Value(),
 						m.newRoot.Value(),
+						m.newQuota,
 						m.newAllowSFTP,
 						m.newAllowFTP,
 						m.newAllowFTPS,
@@ -598,10 +621,15 @@ func (m Model) updateEditUser(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "alt+w":
 			m.edAllowWebDAV = !m.edAllowWebDAV
 			return m, nil
+		case "alt+q":
+			m.st = stateSetQuota
+			m.setQt.SetValue(strconv.FormatInt(m.edQuota, 10))
+			m.setQt.Focus()
+			return m, nil
 		case "enter":
 			cmd := func() tea.Cmd {
 				return func() tea.Msg {
-					if err := m.client.UpdateUser(u.ID, m.edRoot.Value(), m.edEn, m.edAllowSFTP, m.edAllowFTP, m.edAllowFTPS, m.edAllowSCP, m.edAllowWebDAV); err != nil {
+					if err := m.client.UpdateUser(u.ID, m.edRoot.Value(), m.edQuota, m.edEn, m.edAllowSFTP, m.edAllowFTP, m.edAllowFTPS, m.edAllowSCP, m.edAllowWebDAV); err != nil {
 						return errMsg(err.Error())
 					}
 					return okMsg{}
@@ -643,6 +671,37 @@ func (m Model) updateSetPassword(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.setPw, cmd = m.setPw.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateSetQuota(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.selUser == nil {
+		m.st = stateUsers
+		return m, nil
+	}
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			m.st = stateEditUser
+			return m, nil
+		case "enter":
+			raw := strings.TrimSpace(m.setQt.Value())
+			if raw == "" {
+				raw = "0"
+			}
+			q, err := parseQuotaBytes(raw)
+			if err != nil {
+				m.err = "invalid quota (examples: 0, 500MB, 10GiB)"
+				return m, nil
+			}
+			m.edQuota = q
+			m.err = ""
+			m.st = stateEditUser
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.setQt, cmd = m.setQt.Update(msg)
 	return m, cmd
 }
 

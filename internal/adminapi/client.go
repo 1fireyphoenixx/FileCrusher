@@ -90,6 +90,7 @@ type User struct {
 	ID          int64  `json:"id"`
 	Username    string `json:"username"`
 	RootPath    string `json:"root_path"`
+	QuotaBytes  int64  `json:"quota_bytes"`
 	Enabled     bool   `json:"enabled"`
 	AllowSFTP   bool   `json:"allow_sftp"`
 	AllowFTP    bool   `json:"allow_ftp"`
@@ -110,11 +111,12 @@ func (c *Client) ListUsers() ([]User, error) {
 }
 
 // CreateUser creates a new user and returns its ID.
-func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) (int64, error) {
+func (c *Client) CreateUser(username, password, rootPath string, quotaBytes int64, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) (int64, error) {
 	var req struct {
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		RootPath    string `json:"root_path"`
+		QuotaBytes  int64  `json:"quota_bytes"`
 		AllowSFTP   bool   `json:"allow_sftp"`
 		AllowFTP    bool   `json:"allow_ftp"`
 		AllowFTPS   bool   `json:"allow_ftps"`
@@ -124,6 +126,7 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 	req.Username = username
 	req.Password = password
 	req.RootPath = rootPath
+	req.QuotaBytes = quotaBytes
 	req.AllowSFTP = allowSFTP
 	req.AllowFTP = allowFTP
 	req.AllowFTPS = allowFTPS
@@ -140,9 +143,10 @@ func (c *Client) CreateUser(username, password, rootPath string, allowSFTP, allo
 }
 
 // UpdateUser updates a user's properties and permissions.
-func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) error {
+func (c *Client) UpdateUser(id int64, rootPath string, quotaBytes int64, enabled, allowSFTP, allowFTP, allowFTPS, allowSCP, allowWebDAV bool) error {
 	var req struct {
 		RootPath    string `json:"root_path"`
+		QuotaBytes  int64  `json:"quota_bytes"`
 		Enabled     bool   `json:"enabled"`
 		AllowSFTP   bool   `json:"allow_sftp"`
 		AllowFTP    bool   `json:"allow_ftp"`
@@ -151,6 +155,7 @@ func (c *Client) UpdateUser(id int64, rootPath string, enabled, allowSFTP, allow
 		AllowWebDAV bool   `json:"allow_webdav"`
 	}
 	req.RootPath = rootPath
+	req.QuotaBytes = quotaBytes
 	req.Enabled = enabled
 	req.AllowSFTP = allowSFTP
 	req.AllowFTP = allowFTP
