@@ -7,6 +7,7 @@ type User struct {
 	Username    string
 	PassHash    string
 	RootPath    string
+	QuotaBytes  int64
 	Enabled     bool
 	AllowSFTP   bool
 	AllowFTP    bool

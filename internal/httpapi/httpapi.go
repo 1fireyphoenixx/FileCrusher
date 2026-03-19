@@ -487,6 +487,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			ID          int64  `json:"id"`
 			Username    string `json:"username"`
 			RootPath    string `json:"root_path"`
+			QuotaBytes  int64  `json:"quota_bytes"`
 			Enabled     bool   `json:"enabled"`
 			AllowSFTP   bool   `json:"allow_sftp"`
 			AllowFTP    bool   `json:"allow_ftp"`
@@ -502,6 +503,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 				ID:          u.ID,
 				Username:    u.Username,
 				RootPath:    u.RootPath,
+				QuotaBytes:  u.QuotaBytes,
 				Enabled:     u.Enabled,
 				AllowSFTP:   u.AllowSFTP,
 				AllowFTP:    u.AllowFTP,
@@ -518,6 +520,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			Username    string `json:"username"`
 			Password    string `json:"password"`
 			RootPath    string `json:"root_path"`
+			QuotaBytes  int64  `json:"quota_bytes"`
 			AllowSFTP   bool   `json:"allow_sftp"`
 			AllowFTP    bool   `json:"allow_ftp"`
 			AllowFTPS   bool   `json:"allow_ftps"`
@@ -530,6 +533,10 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := validate.Username(req.Username); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if req.QuotaBytes < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "quota_bytes must be >= 0"})
 			return
 		}
 		if req.Password == "" {
@@ -546,7 +553,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
 		}
-		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV)
+		id, err := s.DB.CreateUser(r.Context(), req.Username, h, root, req.QuotaBytes, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "create user failed"})
 			return
@@ -576,6 +583,7 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPut:
 			var req struct {
 				RootPath    string `json:"root_path"`
+				QuotaBytes  int64  `json:"quota_bytes"`
 				Enabled     bool   `json:"enabled"`
 				AllowSFTP   bool   `json:"allow_sftp"`
 				AllowFTP    bool   `json:"allow_ftp"`
@@ -587,12 +595,16 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidJSON})
 				return
 			}
+			if req.QuotaBytes < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "quota_bytes must be >= 0"})
+				return
+			}
 			root, err := validate.RootPath(req.RootPath)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
-			if err := s.DB.UpdateUser(r.Context(), userID, root, req.Enabled, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV); err != nil {
+			if err := s.DB.UpdateUser(r.Context(), userID, root, req.QuotaBytes, req.Enabled, req.AllowSFTP, req.AllowFTP, req.AllowFTPS, req.AllowSCP, req.AllowWebDAV); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
 				return
 			}
@@ -811,7 +823,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 			return
-		} else if err != nil && !os.IsNotExist(err) {
+		} else if !os.IsNotExist(err) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir failed"})
 			return
 		}
