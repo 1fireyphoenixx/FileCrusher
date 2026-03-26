@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -903,14 +904,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, hdr, err := readMultipartFile(r, "file")
+	file, filename, mr, err := readMultipartFile(r, "file")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file"})
 		return
 	}
 	defer file.Close()
 
-	name := filepath.Base(hdr.Filename)
+	name := filepath.Base(filename)
 	if name == "." || name == string(filepath.Separator) || name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
 		return
@@ -944,6 +945,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
+		return
+	}
+	if err := drainMultipartRemainder(mr); err != nil {
+		_ = os.Remove(dstPath)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
 
@@ -1074,23 +1080,78 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 			return nil
 		}
 
-		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(p)))
-		if err != nil {
-			s.Logger.Error("zip open error", "dir", dir, "path", p, "err", err.Error())
-			return nil
-		}
-		defer f.Close()
-		_, _ = io.Copy(wr, f)
+		_ = copyFileToZipEntry(dir, p, wr, s.Logger)
 		return nil
 	})
 }
 
 // readMultipartFile parses and returns the uploaded file for a form field.
-func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MiB threshold; larger files stream via temp files
-		return nil, nil, err
+func readMultipartFile(r *http.Request, field string) (io.ReadCloser, string, *multipart.Reader, error) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return nil, "", nil, err
 	}
-	return r.FormFile(field)
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, "", nil, fmt.Errorf("multipart field %q not found", field)
+			}
+			return nil, "", nil, err
+		}
+		if part.FormName() != field || part.FileName() == "" {
+			_ = part.Close()
+			continue
+		}
+		return part, part.FileName(), mr, nil
+	}
+}
+
+func drainMultipartRemainder(mr *multipart.Reader) error {
+	if mr == nil {
+		return nil
+	}
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			_ = part.Close()
+			return err
+		}
+		if err := part.Close(); err != nil {
+			return err
+		}
+	}
+}
+
+func copyFileToZipEntry(dir string, relPath string, dst io.Writer, lg *slog.Logger) error {
+	f, err := os.Open(filepath.Join(dir, filepath.FromSlash(relPath)))
+	if err != nil {
+		if lg != nil {
+			lg.Error("zip open error", "dir", dir, "path", relPath, "err", err.Error())
+		}
+		return err
+	}
+	_, copyErr := io.Copy(dst, f)
+	closeErr := f.Close()
+	if copyErr != nil {
+		if lg != nil {
+			lg.Error("zip copy error", "dir", dir, "path", relPath, "err", copyErr.Error())
+		}
+		return copyErr
+	}
+	if closeErr != nil {
+		if lg != nil {
+			lg.Error("zip close error", "dir", dir, "path", relPath, "err", closeErr.Error())
+		}
+		return closeErr
+	}
+	return nil
 }
 
 // escapeQuotes strips quotes from a header filename value.

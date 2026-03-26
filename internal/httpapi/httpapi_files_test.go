@@ -352,6 +352,30 @@ func TestHandleUpload_WithinQuota(t *testing.T) {
 	}
 }
 
+func TestHandleUpload_MixedMultipartParts(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger(), MaxUploadBytes: int64(10 << 20)}
+
+	body, contentType := buildMultipartMixedBody(t)
+	r := httptest.NewRequest(http.MethodPost, "/api/upload?path=%2F", body)
+	r.Header.Set("content-type", contentType)
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	ctx = context.WithValue(ctx, ctxUserQuota, int64(1024))
+	w := httptest.NewRecorder()
+	s.handleUpload(w, r.WithContext(ctx))
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	b, err := os.ReadFile(filepath.Join(tmp, "mix.bin"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(b) != "payload" {
+		t.Fatalf("uploaded content=%q", string(b))
+	}
+}
+
 func buildMultipartFileBody(t *testing.T, field, filename string, content []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	body := &bytes.Buffer{}
@@ -362,6 +386,29 @@ func buildMultipartFileBody(t *testing.T, field, filename string, content []byte
 	}
 	if _, err := fw.Write(content); err != nil {
 		t.Fatalf("Write content: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+	return body, mw.FormDataContentType()
+}
+
+func buildMultipartMixedBody(t *testing.T) (*bytes.Buffer, string) {
+	t.Helper()
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	if err := mw.WriteField("meta", "before"); err != nil {
+		t.Fatalf("WriteField before: %v", err)
+	}
+	fw, err := mw.CreateFormFile("file", "mix.bin")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write payload: %v", err)
+	}
+	if err := mw.WriteField("tail", strings.Repeat("x", 64)); err != nil {
+		t.Fatalf("WriteField tail: %v", err)
 	}
 	if err := mw.Close(); err != nil {
 		t.Fatalf("Close writer: %v", err)
