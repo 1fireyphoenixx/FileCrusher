@@ -7,6 +7,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -304,4 +306,65 @@ func TestHandleDownload_RootZip(t *testing.T) {
 	if !found {
 		t.Fatalf("expected root/r.txt in zip")
 	}
+}
+
+func TestHandleUpload_RespectsQuota(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger(), MaxUploadBytes: int64(10 << 20)}
+
+	body, contentType := buildMultipartFileBody(t, "file", "big.bin", []byte("123456"))
+	r := httptest.NewRequest(http.MethodPost, "/api/upload?path=%2F", body)
+	r.Header.Set("content-type", contentType)
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	ctx = context.WithValue(ctx, ctxUserQuota, int64(5))
+	w := httptest.NewRecorder()
+	s.handleUpload(w, r.WithContext(ctx))
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "big.bin")); !os.IsNotExist(err) {
+		t.Fatalf("expected over-quota upload to be removed")
+	}
+}
+
+func TestHandleUpload_WithinQuota(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger(), MaxUploadBytes: int64(10 << 20)}
+
+	body, contentType := buildMultipartFileBody(t, "file", "ok.bin", []byte("1234"))
+	r := httptest.NewRequest(http.MethodPost, "/api/upload?path=%2F", body)
+	r.Header.Set("content-type", contentType)
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	ctx = context.WithValue(ctx, ctxUserQuota, int64(5))
+	w := httptest.NewRecorder()
+	s.handleUpload(w, r.WithContext(ctx))
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	st, err := os.Stat(filepath.Join(tmp, "ok.bin"))
+	if err != nil {
+		t.Fatalf("expected file to exist: %v", err)
+	}
+	if st.Size() != 4 {
+		t.Fatalf("size got %d want 4", st.Size())
+	}
+}
+
+func buildMultipartFileBody(t *testing.T, field, filename string, content []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, err := mw.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatalf("Write content: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+	return body, mw.FormDataContentType()
 }

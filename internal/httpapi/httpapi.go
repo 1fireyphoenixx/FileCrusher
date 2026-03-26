@@ -22,6 +22,7 @@ import (
 	"filecrusher/internal/auth"
 	"filecrusher/internal/db"
 	"filecrusher/internal/fsutil"
+	"filecrusher/internal/quota"
 	"filecrusher/internal/validate"
 	"filecrusher/internal/version"
 	"filecrusher/internal/webdavserver"
@@ -83,6 +84,7 @@ const (
 	errMsgTemporarilyUnavail = "temporarily unavailable"
 	errMsgUploadFailed       = "upload failed"
 	errMsgRenameFailed       = "rename failed"
+	errMsgQuotaExceeded      = "quota exceeded"
 )
 
 // ListenAndServeTLS initializes handlers and starts the HTTPS server.
@@ -717,8 +719,9 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 type ctxKey string
 
 const (
-	ctxUserID   ctxKey = "user_id"
-	ctxUserRoot ctxKey = "user_root"
+	ctxUserID    ctxKey = "user_id"
+	ctxUserRoot  ctxKey = "user_root"
+	ctxUserQuota ctxKey = "user_quota"
 )
 
 func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
@@ -734,6 +737,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			if sess.Kind == "user" && sess.ExpiresAt > time.Now().Unix() && cs.user != nil && cs.user.Enabled {
 				ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
 				ctx = context.WithValue(ctx, ctxUserRoot, cs.user.RootPath)
+				ctx = context.WithValue(ctx, ctxUserQuota, cs.user.QuotaBytes)
 				next(w, r.WithContext(ctx))
 				return
 			}
@@ -760,6 +764,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 		s.putCachedSession(tok, sess, u)
 		ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
 		ctx = context.WithValue(ctx, ctxUserRoot, u.RootPath)
+		ctx = context.WithValue(ctx, ctxUserQuota, u.QuotaBytes)
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -886,6 +891,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.MaxUploadBytes)
 	root := r.Context().Value(ctxUserRoot).(string)
+	quotaBytes, _ := r.Context().Value(ctxUserQuota).(int64)
 	base := r.URL.Query().Get("path")
 	dir, err := fsutil.ResolveWithinRoot(root, base)
 	if err != nil {
@@ -914,6 +920,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
 		return
 	}
+	maxFileSize, _, err := quota.MaxFileSize(root, dstPath, quotaBytes)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
+		return
+	}
 
 	f, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -921,8 +932,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	wr := io.Writer(f)
+	if quotaBytes > 0 {
+		wr = &quotaLimitedWriter{w: f, remaining: maxFileSize}
+	}
 
-	if _, err := io.Copy(f, file); err != nil {
+	if _, err := io.Copy(wr, file); err != nil {
+		if errors.Is(err, errQuotaExceeded) {
+			_ = os.Remove(dstPath)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgQuotaExceeded})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
@@ -1076,6 +1096,31 @@ func readMultipartFile(r *http.Request, field string) (multipart.File, *multipar
 // escapeQuotes strips quotes from a header filename value.
 func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "")
+}
+
+var errQuotaExceeded = errors.New(errMsgQuotaExceeded)
+
+type quotaLimitedWriter struct {
+	w         io.Writer
+	remaining int64
+}
+
+func (w *quotaLimitedWriter) Write(p []byte) (int, error) {
+	if w.remaining <= 0 {
+		return 0, errQuotaExceeded
+	}
+	if int64(len(p)) <= w.remaining {
+		n, err := w.w.Write(p)
+		w.remaining -= int64(n)
+		return n, err
+	}
+	chunk := p[:int(w.remaining)]
+	n, err := w.w.Write(chunk)
+	w.remaining -= int64(n)
+	if err != nil {
+		return n, err
+	}
+	return n, errQuotaExceeded
 }
 
 // setSessionCookie writes the user session cookie.
