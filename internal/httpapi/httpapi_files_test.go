@@ -7,6 +7,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -303,5 +305,77 @@ func TestHandleDownload_RootZip(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected root/r.txt in zip")
+	}
+}
+
+func TestHandleUpload_QuotaExceeded(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger(), MaxUploadBytes: 1 << 20}
+
+	if err := os.WriteFile(filepath.Join(tmp, "existing.bin"), []byte("abc"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "new.bin")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write([]byte("xyz")); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/upload?path=%2F", &body)
+	r.Header.Set("content-type", mw.FormDataContentType())
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	ctx = context.WithValue(ctx, ctxUserQuota, int64(5))
+	w := httptest.NewRecorder()
+	s.handleUpload(w, r.WithContext(ctx))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "new.bin")); !os.IsNotExist(err) {
+		t.Fatalf("new file should not exist when quota exceeded")
+	}
+}
+
+func TestHandleUpload_WithinQuota(t *testing.T) {
+	tmp := t.TempDir()
+	s := &Server{Logger: testLogger(), MaxUploadBytes: 1 << 20}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "ok.bin")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write([]byte("hello")); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/upload?path=%2F", &body)
+	r.Header.Set("content-type", mw.FormDataContentType())
+	ctx := context.WithValue(r.Context(), ctxUserRoot, tmp)
+	ctx = context.WithValue(ctx, ctxUserQuota, int64(5))
+	w := httptest.NewRecorder()
+	s.handleUpload(w, r.WithContext(ctx))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got status=%d body=%s", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	b, err := os.ReadFile(filepath.Join(tmp, "ok.bin"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(b) != "hello" {
+		t.Fatalf("uploaded file mismatch: %q", string(b))
 	}
 }

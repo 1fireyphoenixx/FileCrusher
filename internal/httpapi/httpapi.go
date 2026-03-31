@@ -20,6 +20,7 @@ import (
 	"filecrusher/internal/auth"
 	"filecrusher/internal/db"
 	"filecrusher/internal/fsutil"
+	"filecrusher/internal/quota"
 	"filecrusher/internal/validate"
 	"filecrusher/internal/version"
 	"filecrusher/internal/webdavserver"
@@ -668,8 +669,9 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 type ctxKey string
 
 const (
-	ctxUserID   ctxKey = "user_id"
-	ctxUserRoot ctxKey = "user_root"
+	ctxUserID    ctxKey = "user_id"
+	ctxUserRoot  ctxKey = "user_root"
+	ctxUserQuota ctxKey = "user_quota"
 )
 
 // withUser enforces user authentication and injects user context.
@@ -699,6 +701,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 
 		ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
 		ctx = context.WithValue(ctx, ctxUserRoot, u.RootPath)
+		ctx = context.WithValue(ctx, ctxUserQuota, u.QuotaBytes)
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -851,6 +854,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	dstPath, err := fsutil.ResolveWithinRoot(root, filepath.ToSlash(filepath.Join(strings.TrimLeft(base, "/"), name)))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
+		return
+	}
+	quotaBytes := r.Context().Value(ctxUserQuota).(int64)
+	maxFileSize, _, err := quota.MaxFileSize(root, dstPath, quotaBytes)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
+		return
+	}
+	if hdr.Size > maxFileSize {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "quota exceeded"})
 		return
 	}
 
