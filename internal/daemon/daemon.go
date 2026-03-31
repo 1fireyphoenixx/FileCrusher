@@ -37,15 +37,16 @@ type Options struct {
 	Logger         *slog.Logger
 	MaxUploadBytes int64
 
-	FTPEnable          bool
-	FTPExplicitTLS     bool
-	FTPPort            int
-	FTPSEnable         bool
-	FTPSPort           int
-	FTPSImplicitEnable bool
-	FTPSImplicitPort   int
-	FTPPassivePorts    string
-	FTPPublicHost      string
+	FTPEnable            bool
+	FTPExplicitTLS       bool
+	FTPDisableActiveMode bool
+	FTPPort              int
+	FTPSEnable           bool
+	FTPSPort             int
+	FTPSImplicitEnable   bool
+	FTPSImplicitPort     int
+	FTPPassivePorts      string
+	FTPPublicHost        string
 
 	WebDAVEnable bool
 	WebDAVPrefix string
@@ -168,19 +169,19 @@ func Run(ctx context.Context, opt Options) error {
 			ftpTLS = tlsConf
 		}
 		go func() {
-			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTP, TLSConfig: ftpTLS, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, Logger: lg})
+			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTP, TLSConfig: ftpTLS, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, DisableActiveMode: opt.FTPDisableActiveMode, Logger: lg})
 		}()
 	}
 	if opt.FTPSEnable {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.FTPSPort)
 		go func() {
-			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPS, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, Logger: lg})
+			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPS, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, DisableActiveMode: opt.FTPDisableActiveMode, Logger: lg})
 		}()
 	}
 	if opt.FTPSImplicitEnable {
 		addr := opt.BindAddr + ":" + strconv.Itoa(opt.FTPSImplicitPort)
 		go func() {
-			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPSImplicit, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, Logger: lg})
+			errCh <- ftpserver.ListenAndServe(ctx, ftpserver.Options{Addr: addr, DB: d, Mode: ftpserver.ModeFTPSImplicit, TLSConfig: tlsConf, PassivePorts: passive, PublicHostIP: opt.FTPPublicHost, DisableActiveMode: opt.FTPDisableActiveMode, Logger: lg})
 		}()
 	}
 

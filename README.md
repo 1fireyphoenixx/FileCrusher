@@ -77,6 +77,7 @@ ssh:
 
 ftp:
   enable: false
+  disable_active_mode: false
   port: 2121
   passive_ports: "50000-50100"
   public_host: ""

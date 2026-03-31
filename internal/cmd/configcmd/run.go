@@ -79,6 +79,9 @@ ftp:
   # Allow clients to upgrade to TLS via AUTH TLS on this port.
   explicit_tls: false
 
+  # Disable active-mode data connections (PORT/EPRT) when true.
+  disable_active_mode: false
+
   # FTP control port.
   port: 2121
 

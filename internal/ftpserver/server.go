@@ -27,15 +27,16 @@ var errAccessDenied = errors.New("access denied")
 
 // Options configures server address, TLS, and feature flags.
 type Options struct {
-	Addr           string
-	DB             *db.DB
-	Mode           Mode
-	TLSConfig      *tls.Config
-	PassivePorts   *ftp.PortRange
-	PublicHostIP   string
-	DisableMLSD    bool
-	IdleTimeoutSec int
-	Logger         *slog.Logger
+	Addr              string
+	DB                *db.DB
+	Mode              Mode
+	TLSConfig         *tls.Config
+	PassivePorts      *ftp.PortRange
+	PublicHostIP      string
+	DisableActiveMode bool
+	DisableMLSD       bool
+	IdleTimeoutSec    int
+	Logger            *slog.Logger
 }
 
 // ListenAndServe starts an FTP or FTPS server until the context is done.
@@ -66,7 +67,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		_ = ln.Close()
 	}()
 
-	drv := &mainDriver{db: opt.DB, mode: opt.Mode, tlsConfig: opt.TLSConfig, passive: opt.PassivePorts, publicHost: opt.PublicHostIP, disableMLSD: opt.DisableMLSD, idleTimeout: opt.IdleTimeoutSec, listener: ln}
+	drv := &mainDriver{db: opt.DB, mode: opt.Mode, tlsConfig: opt.TLSConfig, passive: opt.PassivePorts, publicHost: opt.PublicHostIP, disableActiveMode: opt.DisableActiveMode, disableMLSD: opt.DisableMLSD, idleTimeout: opt.IdleTimeoutSec, listener: ln}
 	srv := ftp.NewFtpServer(drv)
 	if opt.Logger != nil {
 		srv.Logger = opt.Logger
@@ -76,14 +77,15 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 
 // mainDriver connects ftpserverlib callbacks to FileCrusher storage.
 type mainDriver struct {
-	db          *db.DB
-	mode        Mode
-	tlsConfig   *tls.Config
-	passive     ftp.PasvPortGetter
-	publicHost  string
-	disableMLSD bool
-	idleTimeout int
-	listener    net.Listener
+	db                *db.DB
+	mode              Mode
+	tlsConfig         *tls.Config
+	passive           ftp.PasvPortGetter
+	publicHost        string
+	disableActiveMode bool
+	disableMLSD       bool
+	idleTimeout       int
+	listener          net.Listener
 }
 
 // GetSettings returns server settings for ftpserverlib.
@@ -109,7 +111,7 @@ func (d *mainDriver) GetSettings() (*ftp.Settings, error) {
 		PublicHost:               d.publicHost,
 		IdleTimeout:              idle,
 		ConnectionTimeout:        15,
-		DisableActiveMode:        true,
+		DisableActiveMode:        d.disableActiveMode,
 		TLSRequired:              tlsReq,
 		DisableMLSD:              d.disableMLSD,
 		ActiveConnectionsCheck:   ftp.IPMatchRequired,

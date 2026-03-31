@@ -45,11 +45,12 @@ type SSHConfig struct {
 
 // FTPConfig holds FTP server settings.
 type FTPConfig struct {
-	Enable       bool   `yaml:"enable"`
-	ExplicitTLS  bool   `yaml:"explicit_tls"`
-	Port         int    `yaml:"port"`
-	PassivePorts string `yaml:"passive_ports"`
-	PublicHost   string `yaml:"public_host"`
+	Enable            bool   `yaml:"enable"`
+	ExplicitTLS       bool   `yaml:"explicit_tls"`
+	DisableActiveMode bool   `yaml:"disable_active_mode"`
+	Port              int    `yaml:"port"`
+	PassivePorts      string `yaml:"passive_ports"`
+	PublicHost        string `yaml:"public_host"`
 }
 
 // FTPSConfig holds FTPS server settings.

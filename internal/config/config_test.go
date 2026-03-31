@@ -30,4 +30,23 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if c.DataDir == "" {
 		t.Fatalf("expected data_dir default")
 	}
+	if c.FTP.DisableActiveMode {
+		t.Fatalf("expected ftp.disable_active_mode default false")
+	}
+}
+
+func TestLoadFTPDisableActiveMode(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "filecrusher.yaml")
+	content := []byte("db:\n  path: ./x.db\nftp:\n  disable_active_mode: true\n")
+	if err := os.WriteFile(p, content, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !c.FTP.DisableActiveMode {
+		t.Fatalf("expected ftp.disable_active_mode true")
+	}
 }

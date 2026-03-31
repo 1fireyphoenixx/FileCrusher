@@ -43,6 +43,7 @@ ftp:
   # Allow explicit TLS upgrade (AUTH TLS) on the FTP port.
   # This gives you a single port that can serve both legacy FTP and FTPES.
   explicit_tls: false
+  disable_active_mode: false
   port: 2121
   passive_ports: "50000-50100"
   public_host: ""
