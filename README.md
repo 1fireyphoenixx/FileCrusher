@@ -25,6 +25,32 @@
 
 Get FileCrusher up and running in seconds.
 
+### Option A: Interactive installer (recommended)
+
+```bash
+# Build the binary
+go build -o filecrusher ./cmd/filecrusher
+
+# Run interactive installer
+./filecrusher install
+
+# Start the server
+./filecrusher server --config ./filecrusher.yaml
+```
+
+The installer asks for:
+- Data directory
+- Binary install directory
+
+Then it initializes the database and key material (same behavior as `filecrusher setup`).
+It also writes these files into your install directory:
+- `config.yaml` (from `filecrusher config generate`)
+- A platform launcher that runs server with `--config config.yaml`:
+  - Unix-like (Linux/macOS/BSD): `run.sh`
+  - Windows: `run.cmd`
+
+### Option B: Manual setup
+
 ```bash
 # 1. Build the binary
 go build -o filecrusher ./cmd/filecrusher
@@ -41,6 +67,7 @@ cp filecrusher.example.yaml filecrusher.yaml
 # 5. Access the Admin TUI (in a new terminal)
 ./filecrusher admin --addr https://127.0.0.1:5132
 ```
+
 
 ---
 
