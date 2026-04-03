@@ -2,6 +2,7 @@ package configcmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -18,7 +19,11 @@ func Run(args []string) error {
 }
 
 func runGenerate() error {
-	_, err := os.Stdout.WriteString(configTemplate)
+	return Generate(os.Stdout)
+}
+
+func Generate(w io.Writer) error {
+	_, err := io.WriteString(w, configTemplate)
 	return err
 }
 

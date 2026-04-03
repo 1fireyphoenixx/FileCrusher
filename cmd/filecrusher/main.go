@@ -35,8 +35,6 @@ func run(argv []string) error {
 		return install.Run(argv[2:])
 	case "setup":
 		return setup.Run(argv[2:])
-	case "init":
-		return setup.Run(argv[2:])
 	case "reset-admin":
 		return resetadmin.Run(argv[2:])
 	case "server":
@@ -56,5 +54,5 @@ func run(argv []string) error {
 
 // usage prints the canonical CLI syntax to stderr.
 func usage() {
-	fmt.Fprintln(os.Stderr, "filecrusher <install|init|setup|server|admin|config|reset-admin> [flags]")
+	fmt.Fprintln(os.Stderr, "filecrusher <install|setup|server|admin|config|reset-admin> [flags]")
 }

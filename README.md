@@ -42,7 +42,10 @@ The installer asks for:
 - Data directory
 - Binary install directory
 
-Then it initializes the database and key material (same behavior as `filecrusher init`).
+Then it initializes the database and key material (same behavior as `filecrusher setup`).
+It also writes these files into your install directory:
+- `config.yaml` (from `filecrusher config generate`)
+- `run.sh` and `run.cmd` launchers (run server with `--config config.yaml`)
 
 ### Option B: Manual setup
 
@@ -63,7 +66,6 @@ cp filecrusher.example.yaml filecrusher.yaml
 ./filecrusher admin --addr https://127.0.0.1:5132
 ```
 
-`filecrusher init` is an alias for `filecrusher setup`.
 
 ---
 

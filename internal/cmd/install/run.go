@@ -2,6 +2,7 @@ package install
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
+	"filecrusher/internal/cmd/configcmd"
 	"filecrusher/internal/cmd/setup"
 )
 
@@ -100,6 +103,15 @@ func Run(args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Initializing database: %s\n", opt.DBPath)
 	if err := setup.Run(setupArgs); err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(opt.BinDir, "config.yaml")
+	if err := writeConfig(configPath, opt.DataDir, opt.DBPath); err != nil {
+		return err
+	}
+
+	if err := writeRunScripts(opt.BinDir); err != nil {
 		return err
 	}
 
@@ -239,5 +251,47 @@ func installBinary(dst string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
+	return nil
+}
+
+func writeConfig(path, dataDir, dbPath string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := configcmd.Generate(&buf); err != nil {
+		return err
+	}
+	config := buf.String()
+	config = strings.Replace(config, "  path: \"./data/filecrusher.db\"", "  path: "+strconv.Quote(dbPath), 1)
+	config = strings.Replace(config, "data_dir: \"./data\"", "data_dir: "+strconv.Quote(dataDir), 1)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.WriteString(f, config); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Wrote config: %s\n", path)
+	return nil
+}
+
+func writeRunScripts(binDir string) error {
+	sh := filepath.Join(binDir, "run.sh")
+	shContent := "#!/usr/bin/env sh\nset -eu\nDIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\ncd \"$DIR\"\nexec \"$DIR/filecrusher\" server --config \"$DIR/config.yaml\" \"$@\"\n"
+	if err := os.WriteFile(sh, []byte(shContent), 0o755); err != nil {
+		return err
+	}
+
+	cmd := filepath.Join(binDir, "run.cmd")
+	cmdContent := "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\n\"%~dp0filecrusher.exe\" server --config \"%~dp0config.yaml\" %*\r\n"
+	if err := os.WriteFile(cmd, []byte(cmdContent), 0o644); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "Wrote launcher: %s\n", sh)
+	fmt.Fprintf(os.Stderr, "Wrote launcher: %s\n", cmd)
 	return nil
 }
