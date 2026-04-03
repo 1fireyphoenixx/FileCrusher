@@ -45,7 +45,9 @@ The installer asks for:
 Then it initializes the database and key material (same behavior as `filecrusher setup`).
 It also writes these files into your install directory:
 - `config.yaml` (from `filecrusher config generate`)
-- `run.sh` and `run.cmd` launchers (run server with `--config config.yaml`)
+- A platform launcher that runs server with `--config config.yaml`:
+  - Unix-like (Linux/macOS/BSD): `run.sh`
+  - Windows: `run.cmd`
 
 ### Option B: Manual setup
 

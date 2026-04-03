@@ -111,7 +111,7 @@ func Run(args []string) error {
 		return err
 	}
 
-	if err := writeRunScripts(opt.BinDir); err != nil {
+	if err := writeRunScript(opt.BinDir, runtime.GOOS); err != nil {
 		return err
 	}
 
@@ -278,20 +278,25 @@ func writeConfig(path, dataDir, dbPath string) error {
 	return nil
 }
 
-func writeRunScripts(binDir string) error {
+func writeRunScript(binDir, goos string) error {
+	if goos == "windows" {
+		_ = os.Remove(filepath.Join(binDir, "run.sh"))
+		cmd := filepath.Join(binDir, "run.cmd")
+		cmdContent := "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\n\"%~dp0filecrusher.exe\" server --config \"%~dp0config.yaml\" %*\r\n"
+		if err := os.WriteFile(cmd, []byte(cmdContent), 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "Wrote launcher: %s\n", cmd)
+		return nil
+	}
+
+	_ = os.Remove(filepath.Join(binDir, "run.cmd"))
 	sh := filepath.Join(binDir, "run.sh")
 	shContent := "#!/usr/bin/env sh\nset -eu\nDIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\ncd \"$DIR\"\nexec \"$DIR/filecrusher\" server --config \"$DIR/config.yaml\" \"$@\"\n"
 	if err := os.WriteFile(sh, []byte(shContent), 0o755); err != nil {
 		return err
 	}
 
-	cmd := filepath.Join(binDir, "run.cmd")
-	cmdContent := "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\n\"%~dp0filecrusher.exe\" server --config \"%~dp0config.yaml\" %*\r\n"
-	if err := os.WriteFile(cmd, []byte(cmdContent), 0o644); err != nil {
-		return err
-	}
-
 	fmt.Fprintf(os.Stderr, "Wrote launcher: %s\n", sh)
-	fmt.Fprintf(os.Stderr, "Wrote launcher: %s\n", cmd)
 	return nil
 }
