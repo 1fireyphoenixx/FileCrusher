@@ -17,6 +17,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const minAuthRejectDelay = 250 * time.Millisecond
+
+var errInvalidCredentials = errors.New("invalid credentials")
+
 // Options configures the SFTP/SCP listener.
 type Options struct {
 	Addr        string
@@ -49,33 +53,35 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 
 	conf := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+			start := time.Now()
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
 			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
 				auth.DummyVerify(string(pass))
-				return nil, errors.New("invalid credentials")
+				return rejectAuth(start)
 			}
 			okPw, err := auth.VerifyPassword(string(pass), u.PassHash)
 			if err != nil || !okPw {
-				return nil, errors.New("invalid credentials")
+				return rejectAuth(start)
 			}
 			return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
 		},
 		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			start := time.Now()
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
 			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
-				return nil, errors.New("invalid credentials")
+				return rejectAuth(start)
 			}
 			fp := ssh.FingerprintSHA256(key)
 			keys, err := opt.DB.ListSSHKeysForUser(ctx, u.ID)
 			if err != nil {
-				return nil, errors.New("invalid credentials")
+				return rejectAuth(start)
 			}
 			for _, k := range keys {
 				if k.Fingerprint == fp {
 					return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
 				}
 			}
-			return nil, errors.New("invalid credentials")
+			return rejectAuth(start)
 		},
 	}
 	conf.AddHostKey(hostSigner)
@@ -186,4 +192,11 @@ func loadSigner(path string) (ssh.Signer, error) {
 // intToString converts an int64 to its decimal string form.
 func intToString(v int64) string {
 	return strconv.FormatInt(v, 10)
+}
+
+func rejectAuth(start time.Time) (*ssh.Permissions, error) {
+	if remaining := minAuthRejectDelay - time.Since(start); remaining > 0 {
+		time.Sleep(remaining)
+	}
+	return nil, errInvalidCredentials
 }
