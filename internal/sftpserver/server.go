@@ -17,6 +17,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+
+
 const minAuthRejectDelay = 250 * time.Millisecond
 
 var errInvalidCredentials = errors.New("invalid credentials")
@@ -52,6 +54,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 	}
 
 	conf := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-filecrusher", //set banner for ssh
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			start := time.Now()
 			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
