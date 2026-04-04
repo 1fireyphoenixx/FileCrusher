@@ -3,7 +3,6 @@ package ftpserver
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -331,10 +330,7 @@ func testTransferOnConnection(t *testing.T, server *FtpServer, active, enableTLS
 		ActiveTransfers: active,
 	}
 	if enableTLS {
-		conf.TLSConfig = &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		}
+		conf.TLSConfig = testTLSClientConfig(t)
 		if implicitTLS {
 			conf.TLSMode = goftp.TLSImplicit
 		} else {

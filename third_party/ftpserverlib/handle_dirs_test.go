@@ -1,7 +1,6 @@
 package ftpserver
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -375,13 +374,10 @@ func TestTLSTransfer(t *testing.T) {
 	server.settings.TLSRequired = MandatoryEncryption
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	client, err := goftp.DialConfig(conf, server.Addr())
@@ -421,12 +417,10 @@ func TestPerClientTLSTransfer(t *testing.T) {
 	})
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	client, err := goftp.DialConfig(conf, server.Addr())

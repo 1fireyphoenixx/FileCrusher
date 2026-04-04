@@ -2,6 +2,7 @@ package ftpserver
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"log/slog"
@@ -35,6 +36,21 @@ const (
 )
 
 var errInvalidTLSCertificate = errors.New("invalid TLS certificate")
+
+func testTLSClientConfig(t *testing.T) *tls.Config {
+	t.Helper()
+
+	pool := x509.NewCertPool()
+	if ok := pool.AppendCertsFromPEM(localhostCert); !ok {
+		t.Fatalf("failed to append localhost test certificate")
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    pool,
+		ServerName: "127.0.0.1",
+	}
+}
 
 // NewTestServer provides a test server with or without debugging
 func NewTestServer(t *testing.T, debug bool) *FtpServer {

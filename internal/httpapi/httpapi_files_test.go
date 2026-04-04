@@ -5,7 +5,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"filecrusher/internal/fsutil"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -373,6 +376,54 @@ func TestHandleUpload_MixedMultipartParts(t *testing.T) {
 	}
 	if string(b) != "payload" {
 		t.Fatalf("uploaded content=%q", string(b))
+	}
+}
+
+func TestSafeRemoveWithinRoot_RemovesInsidePath(t *testing.T) {
+	root := t.TempDir()
+	local := filepath.Join(root, "tmp.bin")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	if err := safeRemoveWithinRoot(root, local); err != nil {
+		t.Fatalf("safeRemoveWithinRoot: %v", err)
+	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("expected file to be removed, stat err=%v", err)
+	}
+}
+
+func TestSafeRemoveWithinRoot_RejectsOutsidePath(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.bin")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	err := safeRemoveWithinRoot(root, outside)
+	if err == nil {
+		t.Fatalf("expected path traversal error")
+	}
+	if !errors.Is(err, fsutil.ErrPathTraversal) {
+		t.Fatalf("expected root-containment failure, got %v", err)
+	}
+	if _, statErr := os.Stat(outside); statErr != nil {
+		t.Fatalf("outside file should remain untouched, stat err=%v", statErr)
+	}
+}
+
+func TestCopyFileToZipEntry_RejectsInvalidPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o600); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	var dst bytes.Buffer
+	err := copyFileToZipEntry(os.DirFS(root), "../a.txt", &dst, testLogger())
+	if !errors.Is(err, fs.ErrInvalid) {
+		t.Fatalf("expected fs.ErrInvalid, got %v", err)
 	}
 }
 

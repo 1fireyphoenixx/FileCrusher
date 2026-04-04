@@ -3,7 +3,6 @@ package ftpserver
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -124,13 +123,10 @@ func TestCHMOD(t *testing.T) {
 		TLS:   true,
 	})
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 	client, err := goftp.DialConfig(conf, server.Addr())
 	require.NoError(t, err, "Couldn't connect")
@@ -208,13 +204,10 @@ func TestMFMT(t *testing.T) {
 		TLS:   true,
 	})
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 	client, err := goftp.DialConfig(conf, server.Addr())
 	require.NoError(t, err, "Couldn't connect")

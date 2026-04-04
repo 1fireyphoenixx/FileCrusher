@@ -1,7 +1,6 @@
 package ftpserver
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -250,13 +249,10 @@ func TestQuit(t *testing.T) {
 		TLS:   true,
 	})
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 	client, err := goftp.DialConfig(conf, server.Addr())
 	require.NoError(t, err, "Couldn't connect")
@@ -284,13 +280,10 @@ func TestQuitWithCustomMessage(t *testing.T) {
 	server := NewTestServerWithDriver(t, driver)
 	req := require.New(t)
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 	c, err := goftp.DialConfig(conf, server.Addr())
 	req.NoError(err, "Couldn't connect")

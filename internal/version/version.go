@@ -3,5 +3,5 @@ package version
 
 const (
 	// Version is the FileCrusher version string.
-	Version = "1.3.0-10"
+	Version = "1.3.0-11.security1"
 )

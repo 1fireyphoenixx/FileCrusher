@@ -1,7 +1,6 @@
 package ftpserver
 
 import (
-	"crypto/tls"
 	"net"
 	"testing"
 	"time"
@@ -136,13 +135,10 @@ func TestAuthTLS(t *testing.T) {
 	})
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	client, err := goftp.DialConfig(conf, server.Addr())
@@ -161,13 +157,10 @@ func TestAuthExplicitTLSFailure(t *testing.T) {
 	server := NewTestServer(t, false)
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	c, err := goftp.DialConfig(conf, server.Addr())
@@ -200,10 +193,7 @@ func TestAuthTLSRequired(t *testing.T) {
 	require.Error(t, err, "Plain text login must fail, TLS is required")
 	require.EqualError(t, err, "unexpected response: 421-TLS is required")
 
-	conf.TLSConfig = &tls.Config{
-		//nolint:gosec
-		InsecureSkipVerify: true,
-	}
+	conf.TLSConfig = testTLSClientConfig(t)
 	conf.TLSMode = goftp.TLSExplicit
 
 	client, err = goftp.DialConfig(conf, server.Addr())
@@ -227,13 +217,10 @@ func TestAuthTLSVerificationFailed(t *testing.T) {
 	})
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	client, err := goftp.DialConfig(conf, server.Addr())
@@ -253,12 +240,9 @@ func TestAuthTLSCertificate(t *testing.T) {
 	})
 
 	conf := goftp.Config{
-		User: authUser,
-		TLSConfig: &tls.Config{
-			//nolint:gosec
-			InsecureSkipVerify: true,
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	c, err := goftp.DialConfig(conf, server.Addr())
@@ -297,9 +281,7 @@ func TestAuthPerClientTLSRequired(t *testing.T) {
 	require.Error(t, err, "Plain text login must fail, TLS is required")
 	require.EqualError(t, err, "unexpected response: 421-TLS is required")
 
-	conf.TLSConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec
-	}
+	conf.TLSConfig = testTLSClientConfig(t)
 	conf.TLSMode = goftp.TLSExplicit
 
 	client, err = goftp.DialConfig(conf, server.Addr())
@@ -325,12 +307,10 @@ func TestUserVerifierError(t *testing.T) {
 	})
 
 	conf := goftp.Config{
-		User:     authUser,
-		Password: authPass,
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
-		},
-		TLSMode: goftp.TLSExplicit,
+		User:      authUser,
+		Password:  authPass,
+		TLSConfig: testTLSClientConfig(t),
+		TLSMode:   goftp.TLSExplicit,
 	}
 
 	c, err := goftp.DialConfig(conf, server.Addr())

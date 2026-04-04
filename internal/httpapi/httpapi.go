@@ -940,7 +940,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := io.Copy(wr, file); err != nil {
 		if errors.Is(err, errQuotaExceeded) {
-			_ = os.Remove(dstPath)
+			_ = safeRemoveWithinRoot(root, dstPath)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgQuotaExceeded})
 			return
 		}
@@ -948,7 +948,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := drainMultipartRemainder(mr); err != nil {
-		_ = os.Remove(dstPath)
+		_ = safeRemoveWithinRoot(root, dstPath)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
@@ -1080,7 +1080,7 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 			return nil
 		}
 
-		_ = copyFileToZipEntry(dir, p, wr, s.Logger)
+		_ = copyFileToZipEntry(fsys, p, wr, s.Logger)
 		return nil
 	})
 }
@@ -1129,11 +1129,18 @@ func drainMultipartRemainder(mr *multipart.Reader) error {
 	}
 }
 
-func copyFileToZipEntry(dir string, relPath string, dst io.Writer, lg *slog.Logger) error {
-	f, err := os.Open(filepath.Join(dir, filepath.FromSlash(relPath)))
+func copyFileToZipEntry(fsys fs.FS, relPath string, dst io.Writer, lg *slog.Logger) error {
+	if !fs.ValidPath(relPath) {
+		if lg != nil {
+			lg.Error("zip open error", "path", relPath, "err", fs.ErrInvalid.Error())
+		}
+		return fs.ErrInvalid
+	}
+
+	f, err := fsys.Open(relPath)
 	if err != nil {
 		if lg != nil {
-			lg.Error("zip open error", "dir", dir, "path", relPath, "err", err.Error())
+			lg.Error("zip open error", "path", relPath, "err", err.Error())
 		}
 		return err
 	}
@@ -1141,17 +1148,56 @@ func copyFileToZipEntry(dir string, relPath string, dst io.Writer, lg *slog.Logg
 	closeErr := f.Close()
 	if copyErr != nil {
 		if lg != nil {
-			lg.Error("zip copy error", "dir", dir, "path", relPath, "err", copyErr.Error())
+			lg.Error("zip copy error", "path", relPath, "err", copyErr.Error())
 		}
 		return copyErr
 	}
 	if closeErr != nil {
 		if lg != nil {
-			lg.Error("zip close error", "dir", dir, "path", relPath, "err", closeErr.Error())
+			lg.Error("zip close error", "path", relPath, "err", closeErr.Error())
 		}
 		return closeErr
 	}
 	return nil
+}
+
+func safeRemoveWithinRoot(root, local string) error {
+	if root == "" {
+		return errors.New("root is required")
+	}
+	if local == "" {
+		return errors.New("local path is required")
+	}
+
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	rootAbs = filepath.Clean(rootAbs)
+
+	localAbs, err := filepath.Abs(local)
+	if err != nil {
+		return err
+	}
+	localAbs = filepath.Clean(localAbs)
+
+	rel, err := filepath.Rel(rootAbs, localAbs)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fsutil.ErrPathTraversal
+	}
+
+	verified, err := fsutil.ResolveWithinRoot(rootAbs, filepath.ToSlash(rel))
+	if err != nil {
+		return err
+	}
+	if verified != localAbs {
+		return fsutil.ErrPathTraversal
+	}
+
+	return os.Remove(verified)
 }
 
 // escapeQuotes strips quotes from a header filename value.

@@ -1,10 +1,12 @@
 package quota
 
 import (
+	"filecrusher/internal/fsutil"
 	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func DirectoryUsage(root string) (int64, error) {
@@ -38,8 +40,36 @@ func DirectoryUsage(root string) (int64, error) {
 }
 
 func MaxFileSize(root, local string, quotaBytes int64) (int64, int64, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return 0, 0, err
+	}
+	rootAbs = filepath.Clean(rootAbs)
+
+	localAbs, err := filepath.Abs(local)
+	if err != nil {
+		return 0, 0, err
+	}
+	localAbs = filepath.Clean(localAbs)
+
+	rel, err := filepath.Rel(rootAbs, localAbs)
+	if err != nil {
+		return 0, 0, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return 0, 0, fsutil.ErrPathTraversal
+	}
+
+	verified, err := fsutil.ResolveWithinRoot(rootAbs, filepath.ToSlash(rel))
+	if err != nil {
+		return 0, 0, err
+	}
+	if verified != localAbs {
+		return 0, 0, fsutil.ErrPathTraversal
+	}
+
 	existing := int64(0)
-	if st, err := os.Stat(local); err == nil {
+	if st, err := os.Stat(verified); err == nil {
 		existing = st.Size()
 	} else if !os.IsNotExist(err) {
 		return 0, 0, err
