@@ -6,14 +6,6 @@
     <title>FileCrusher</title>
     <link rel="stylesheet" href="/static/app.css" />
     <link rel="stylesheet" href="/static/modern.css" />
-    <script>
-    if (document.documentElement.dataset.theme === 'modern') {
-      var l = document.createElement('link');
-      l.rel = 'stylesheet';
-      l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
-      document.head.appendChild(l);
-    }
-    </script>
   </head>
   <body>
     <main class="app">
@@ -100,13 +92,5 @@
     </main>
 
     <script src="/static/app.js"></script>
-    <script>
-    if (document.documentElement.dataset.theme === 'modern') {
-      var s = document.createElement('script');
-      s.src = 'https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js';
-      s.onload = function () { lucide.createIcons(); };
-      document.body.appendChild(s);
-    }
-    </script>
   </body>
 </html>

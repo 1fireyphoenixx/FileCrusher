@@ -166,7 +166,7 @@ func (s *Server) ListenAndServeTLS() error {
 
 	csp := "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 	if theme == "modern" {
-		csp = "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		csp = "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 	}
 	h := withSecurityHeaders(mux, csp)
 	h = s.withRecover(h)

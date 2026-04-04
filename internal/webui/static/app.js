@@ -17,6 +17,32 @@ const uploadsSummaryEl = document.getElementById('uploadsSummary');
 
 let cwd = '/';
 
+function loadModernAssets() {
+  if (document.documentElement.dataset.theme !== 'modern') return;
+
+  const fontsHref = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+  if (!document.querySelector(`link[href="${fontsHref}"]`)) {
+    const fontLink = document.createElement('link');
+    fontLink.rel = 'stylesheet';
+    fontLink.href = fontsHref;
+    document.head.appendChild(fontLink);
+  }
+
+  const lucideSrc = 'https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js';
+  if (!document.querySelector(`script[src="${lucideSrc}"]`)) {
+    const lucideScript = document.createElement('script');
+    lucideScript.src = lucideSrc;
+    lucideScript.onload = () => {
+      if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+    };
+    document.body.appendChild(lucideScript);
+  }
+}
+
+loadModernAssets();
+
 function fmtBytes(n) {
   if (n == null) return '';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -54,9 +80,11 @@ function makeUploadRow(file) {
   meta.textContent = `0% (${fmtBytes(0)} / ${fmtBytes(file.size)})`;
 
   const bar = document.createElement('div');
-  bar.className = 'bar';
-  const fill = document.createElement('div');
-  fill.className = 'barFill';
+  bar.className = 'barWrap';
+  const fill = document.createElement('progress');
+  fill.className = 'bar';
+  fill.max = 100;
+  fill.value = 0;
   bar.appendChild(fill);
 
   row.appendChild(name);
@@ -149,8 +177,8 @@ function renderCrumbs() {
   for (const part of parts) {
     acc += '/' + part;
     const sep = document.createElement('span');
+    sep.className = 'crumbSep';
     sep.textContent = ' / ';
-    sep.style.color = '#6b6259';
     crumbsEl.appendChild(sep);
 
     const btn = document.createElement('button');
@@ -383,14 +411,14 @@ document.getElementById('upload').addEventListener('change', async (ev) => {
         await uploadWithProgress(f, cwd, (loaded, total) => {
           lastLoaded = loaded;
           const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
-          ui.fill.style.width = `${pct}%`;
+          ui.fill.value = pct;
           ui.meta.textContent = `${pct}% (${fmtBytes(loaded)} / ${fmtBytes(total)})`;
           updateSummary(f.name, pct);
         });
         doneBytes += f.size || lastLoaded || 0;
         okCount += 1;
         ui.row.classList.add('done');
-        ui.fill.style.width = '100%';
+        ui.fill.value = 100;
         ui.meta.textContent = `100% (${fmtBytes(f.size)} / ${fmtBytes(f.size)})`;
       } catch (e) {
         doneBytes += f.size || lastLoaded || 0;
