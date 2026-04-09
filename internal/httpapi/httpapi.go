@@ -3,8 +3,10 @@ package httpapi
 import (
 	"archive/zip"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -15,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"filecrusher/internal/auth"
@@ -42,8 +45,22 @@ type Server struct {
 	WebDAVEnable bool
 	WebDAVPrefix string
 
+	UITheme string
+
 	adminLimiter *fixedWindowLimiter
 	userLimiter  *fixedWindowLimiter
+
+	// cachedIndex is the pre-rendered index.html page, computed once at startup.
+	cachedIndex []byte
+
+	// Session cache: avoids 2 DB queries per authenticated request.
+	sessionMu    sync.RWMutex
+	sessionCache map[string]*cachedSession
+
+	// Admin allowlist cache: avoids a DB query per admin request.
+	allowlistMu     sync.RWMutex
+	allowlistCache  []db.AdminIPAllowEntry
+	allowlistExpiry time.Time
 }
 
 const (
@@ -68,6 +85,7 @@ const (
 	errMsgTemporarilyUnavail = "temporarily unavailable"
 	errMsgUploadFailed       = "upload failed"
 	errMsgRenameFailed       = "rename failed"
+	errMsgQuotaExceeded      = "quota exceeded"
 )
 
 // ListenAndServeTLS initializes handlers and starts the HTTPS server.
@@ -91,12 +109,29 @@ func (s *Server) ListenAndServeTLS() error {
 		s.userLimiter = newFixedWindowLimiter(120, 1*time.Minute)
 	}
 
+	theme := s.UITheme
+	if theme == "" {
+		theme = "simple"
+	}
+	idxBytes, err := webui.StaticFS.ReadFile("static/index.html")
+	if err != nil {
+		return err
+	}
+	s.cachedIndex = []byte(strings.NewReplacer(
+		"{{VERSION}}", "v"+version.Version,
+		"{{THEME}}", theme,
+	).Replace(string(idxBytes)))
+
+	s.initCaches()
+
 	mux := http.NewServeMux()
 	staticFS, err := fs.Sub(webui.StaticFS, "static")
 	if err != nil {
 		return err
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	mux.Handle("/static/", withCacheControl(
+		http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))),
+	))
 	mux.HandleFunc("/", s.serveIndex)
 
 	mux.HandleFunc("/api/login", s.handleLogin)
@@ -129,7 +164,11 @@ func (s *Server) ListenAndServeTLS() error {
 		s.Logger.Info("webdav enabled", "prefix", prefix)
 	}
 
-	h := withSecurityHeaders(mux)
+	csp := "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	if theme == "modern" {
+		csp = "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	}
+	h := withSecurityHeaders(mux, csp)
 	h = s.withRecover(h)
 	h = s.withRequestLog(h)
 	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
@@ -137,33 +176,32 @@ func (s *Server) ListenAndServeTLS() error {
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           h,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    8 << 10, // 8 KiB
 		ReadHeaderTimeout: 5 * time.Second,
 		// NOTE: Avoid ReadTimeout/WriteTimeout here; this server supports large uploads.
 		// ReadHeaderTimeout + IdleTimeout are still enforced.
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CurvePreferences: []tls.CurveID{
+				tls.X25519,
+				tls.CurveP256,
+			},
+		},
 	}
 
 	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
 }
 
-// serveIndex serves the embedded admin web UI landing page.
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := webui.StaticFS.ReadFile("static/index.html")
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "web ui missing"})
-		return
-	}
-	// Keep the web UI static, but inject the build version for visibility.
-	page := strings.ReplaceAll(string(b), "{{VERSION}}", "v"+version.Version)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(page))
+	_, _ = w.Write(s.cachedIndex)
 }
 
 // handleLogin authenticates a user and issues a session cookie.
@@ -254,6 +292,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if tok, ok := readSessionCookie(r); ok {
+		s.evictSession(tok)
 		_ = s.DB.DeleteSession(ctx, tok)
 	}
 	clearSessionCookie(w)
@@ -266,7 +305,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
 		return
 	}
-	allowed, err := isAdminAllowedByIP(s.DB, r)
+	allowed, err := s.isAdminAllowedByIP(r)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 		return
@@ -325,16 +364,16 @@ func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok, ok := readAdminCookie(r); ok {
+		s.evictSession(tok)
 		_ = s.DB.DeleteSession(r.Context(), tok)
 	}
 	clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
-// withAdmin enforces allowlist, rate limit, and admin authentication.
 func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		allowed, err := isAdminAllowedByIP(s.DB, r)
+		allowed, err := s.isAdminAllowedByIP(r)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
 			return
@@ -353,6 +392,15 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+
+		if cs, ok := s.getCachedSession(tok); ok {
+			if cs.session.Kind == "admin" && cs.session.ExpiresAt > time.Now().Unix() {
+				next(w, r)
+				return
+			}
+			s.evictSession(tok)
+		}
+
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
@@ -363,6 +411,7 @@ func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+		s.putCachedSession(tok, sess, nil)
 		next(w, r)
 	}
 }
@@ -397,6 +446,7 @@ func (s *Server) handleAdminAllowlist(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "add failed"})
 			return
 		}
+		s.invalidateAllowlistCache()
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "cidr": n.String()})
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})
@@ -423,6 +473,7 @@ func (s *Server) handleAdminAllowlistByID(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 		return
 	}
+	s.invalidateAllowlistCache()
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
@@ -674,7 +725,6 @@ const (
 	ctxUserQuota ctxKey = "user_quota"
 )
 
-// withUser enforces user authentication and injects user context.
 func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := readSessionCookie(r)
@@ -682,6 +732,19 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errMsgNotAuthenticated})
 			return
 		}
+
+		if cs, ok := s.getCachedSession(tok); ok {
+			sess := cs.session
+			if sess.Kind == "user" && sess.ExpiresAt > time.Now().Unix() && cs.user != nil && cs.user.Enabled {
+				ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
+				ctx = context.WithValue(ctx, ctxUserRoot, cs.user.RootPath)
+				ctx = context.WithValue(ctx, ctxUserQuota, cs.user.QuotaBytes)
+				next(w, r.WithContext(ctx))
+				return
+			}
+			s.evictSession(tok)
+		}
+
 		sess, ok, err := s.DB.GetSession(r.Context(), tok)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgServerError})
@@ -699,6 +762,7 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		s.putCachedSession(tok, sess, u)
 		ctx := context.WithValue(r.Context(), ctxUserID, sess.SubjectID)
 		ctx = context.WithValue(ctx, ctxUserRoot, u.RootPath)
 		ctx = context.WithValue(ctx, ctxUserQuota, u.QuotaBytes)
@@ -765,7 +829,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 			return
-		} else if err != nil && !os.IsNotExist(err) {
+		} else if !os.IsNotExist(err) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir failed"})
 			return
 		}
@@ -828,6 +892,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.MaxUploadBytes)
 	root := r.Context().Value(ctxUserRoot).(string)
+	quotaBytes, _ := r.Context().Value(ctxUserQuota).(int64)
 	base := r.URL.Query().Get("path")
 	dir, err := fsutil.ResolveWithinRoot(root, base)
 	if err != nil {
@@ -839,14 +904,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, hdr, err := readMultipartFile(r, "file")
+	file, filename, mr, err := readMultipartFile(r, "file")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file"})
 		return
 	}
 	defer file.Close()
 
-	name := filepath.Base(hdr.Filename)
+	name := filepath.Base(filename)
 	if name == "." || name == string(filepath.Separator) || name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
 		return
@@ -856,14 +921,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
 		return
 	}
-	quotaBytes := r.Context().Value(ctxUserQuota).(int64)
 	maxFileSize, _, err := quota.MaxFileSize(root, dstPath, quotaBytes)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
-		return
-	}
-	if hdr.Size > maxFileSize {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "quota exceeded"})
 		return
 	}
 
@@ -873,9 +933,23 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	wr := io.Writer(f)
+	if quotaBytes > 0 {
+		wr = &quotaLimitedWriter{w: f, remaining: maxFileSize}
+	}
 
-	if _, err := io.Copy(f, file); err != nil {
+	if _, err := io.Copy(wr, file); err != nil {
+		if errors.Is(err, errQuotaExceeded) {
+			_ = safeRemoveWithinRoot(root, dstPath)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgQuotaExceeded})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgUploadFailed})
+		return
+	}
+	if err := drainMultipartRemainder(mr); err != nil {
+		_ = safeRemoveWithinRoot(root, dstPath)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgUploadFailed})
 		return
 	}
 
@@ -1006,28 +1080,154 @@ func (s *Server) serveZipDir(w http.ResponseWriter, dir string, zipBase string) 
 			return nil
 		}
 
-		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(p)))
-		if err != nil {
-			s.Logger.Error("zip open error", "dir", dir, "path", p, "err", err.Error())
-			return nil
-		}
-		defer f.Close()
-		_, _ = io.Copy(wr, f)
+		_ = copyFileToZipEntry(fsys, p, wr, s.Logger)
 		return nil
 	})
 }
 
 // readMultipartFile parses and returns the uploaded file for a form field.
-func readMultipartFile(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		return nil, nil, err
+func readMultipartFile(r *http.Request, field string) (io.ReadCloser, string, *multipart.Reader, error) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return nil, "", nil, err
 	}
-	return r.FormFile(field)
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, "", nil, fmt.Errorf("multipart field %q not found", field)
+			}
+			return nil, "", nil, err
+		}
+		if part.FormName() != field || part.FileName() == "" {
+			_ = part.Close()
+			continue
+		}
+		return part, part.FileName(), mr, nil
+	}
+}
+
+func drainMultipartRemainder(mr *multipart.Reader) error {
+	if mr == nil {
+		return nil
+	}
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			_ = part.Close()
+			return err
+		}
+		if err := part.Close(); err != nil {
+			return err
+		}
+	}
+}
+
+func copyFileToZipEntry(fsys fs.FS, relPath string, dst io.Writer, lg *slog.Logger) error {
+	if !fs.ValidPath(relPath) {
+		if lg != nil {
+			lg.Error("zip open error", "path", relPath, "err", fs.ErrInvalid.Error())
+		}
+		return fs.ErrInvalid
+	}
+
+	f, err := fsys.Open(relPath)
+	if err != nil {
+		if lg != nil {
+			lg.Error("zip open error", "path", relPath, "err", err.Error())
+		}
+		return err
+	}
+	_, copyErr := io.Copy(dst, f)
+	closeErr := f.Close()
+	if copyErr != nil {
+		if lg != nil {
+			lg.Error("zip copy error", "path", relPath, "err", copyErr.Error())
+		}
+		return copyErr
+	}
+	if closeErr != nil {
+		if lg != nil {
+			lg.Error("zip close error", "path", relPath, "err", closeErr.Error())
+		}
+		return closeErr
+	}
+	return nil
+}
+
+func safeRemoveWithinRoot(root, local string) error {
+	if root == "" {
+		return errors.New("root is required")
+	}
+	if local == "" {
+		return errors.New("local path is required")
+	}
+
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	rootAbs = filepath.Clean(rootAbs)
+
+	localAbs, err := filepath.Abs(local)
+	if err != nil {
+		return err
+	}
+	localAbs = filepath.Clean(localAbs)
+
+	rel, err := filepath.Rel(rootAbs, localAbs)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fsutil.ErrPathTraversal
+	}
+
+	verified, err := fsutil.ResolveWithinRoot(rootAbs, filepath.ToSlash(rel))
+	if err != nil {
+		return err
+	}
+	if verified != localAbs {
+		return fsutil.ErrPathTraversal
+	}
+
+	return os.Remove(verified)
 }
 
 // escapeQuotes strips quotes from a header filename value.
 func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "")
+}
+
+var errQuotaExceeded = errors.New(errMsgQuotaExceeded)
+
+type quotaLimitedWriter struct {
+	w         io.Writer
+	remaining int64
+}
+
+func (w *quotaLimitedWriter) Write(p []byte) (int, error) {
+	if w.remaining <= 0 {
+		return 0, errQuotaExceeded
+	}
+	if int64(len(p)) <= w.remaining {
+		n, err := w.w.Write(p)
+		w.remaining -= int64(n)
+		return n, err
+	}
+	chunk := p[:int(w.remaining)]
+	n, err := w.w.Write(chunk)
+	w.remaining -= int64(n)
+	if err != nil {
+		return n, err
+	}
+	return n, errQuotaExceeded
 }
 
 // setSessionCookie writes the user session cookie.
@@ -1113,13 +1313,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// withSecurityHeaders adds common security headers for browser clients.
-func withSecurityHeaders(next http.Handler) http.Handler {
+func withCacheControl(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("cache-control", "public, max-age=86400")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withSecurityHeaders(next http.Handler, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-content-type-options", "nosniff")
 		w.Header().Set("x-frame-options", "DENY")
 		w.Header().Set("referrer-policy", "no-referrer")
-		w.Header().Set("content-security-policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("content-security-policy", csp)
 		if r.TLS != nil {
 			w.Header().Set("strict-transport-security", "max-age=31536000")
 		}

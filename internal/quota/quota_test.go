@@ -1,6 +1,8 @@
 package quota
 
 import (
+	"errors"
+	"filecrusher/internal/fsutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,5 +47,19 @@ func TestMaxFileSize(t *testing.T) {
 	}
 	if maxFile != 6 {
 		t.Fatalf("max file got %d want 6", maxFile)
+	}
+}
+
+func TestMaxFileSizeRejectsPathOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.bin")
+	if err := os.WriteFile(outside, []byte("123"), 0o600); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+
+	_, _, err := MaxFileSize(root, outside, 10)
+	if !errors.Is(err, fsutil.ErrPathTraversal) {
+		t.Fatalf("expected ErrPathTraversal, got %v", err)
 	}
 }

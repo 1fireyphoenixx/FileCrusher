@@ -21,22 +21,23 @@ type Options struct {
 	ConfigPath string
 	LogLevel   string
 
-	DBPath          string
-	DataDir         string
-	BindAddr        string
-	WebPort         int
-	SFTPPort        int
-	FTPEnable       bool
-	FTPExplicitTLS  bool
-	FTPPort         int
-	FTPSEnable      bool
-	FTPSPort        int
-	FTPSImplicitEnable bool
-	FTPSImplicitPort   int
-	FTPPassivePorts string
-	FTPPublicHost   string
-	WebDAVEnable    bool
-	WebDAVPrefix    string
+	DBPath               string
+	DataDir              string
+	BindAddr             string
+	WebPort              int
+	SFTPPort             int
+	FTPEnable            bool
+	FTPExplicitTLS       bool
+	FTPDisableActiveMode bool
+	FTPPort              int
+	FTPSEnable           bool
+	FTPSPort             int
+	FTPSImplicitEnable   bool
+	FTPSImplicitPort     int
+	FTPPassivePorts      string
+	FTPPublicHost        string
+	WebDAVEnable         bool
+	WebDAVPrefix         string
 }
 
 // Run parses flags for the server subcommand and starts the daemon.
@@ -55,6 +56,7 @@ func Run(args []string) error {
 	fs.IntVar(&opt.SFTPPort, "sftp-port", 2022, "SFTP SSH port")
 	fs.BoolVar(&opt.FTPEnable, "ftp-enable", false, "enable plain FTP (insecure; prefer FTPS)")
 	fs.BoolVar(&opt.FTPExplicitTLS, "ftp-explicit-tls", false, "allow explicit TLS upgrade (AUTH TLS) on the FTP port")
+	fs.BoolVar(&opt.FTPDisableActiveMode, "ftp-disable-active-mode", false, "disable active mode (PORT/EPRT) and allow passive-only mode")
 	fs.IntVar(&opt.FTPPort, "ftp-port", 2121, "FTP control port")
 	fs.BoolVar(&opt.FTPSEnable, "ftps-enable", false, "enable explicit FTPS")
 	fs.IntVar(&opt.FTPSPort, "ftps-port", 2122, "FTPS control port")
@@ -90,27 +92,29 @@ func Run(args []string) error {
 			}
 		}
 		return daemon.Run(context.Background(), daemon.Options{
-			DBPath:          resolvePath(base, c.DB.Path),
-			DataDir:         resolvePath(base, c.DataDir),
-			BindAddr:        c.HTTP.Bind,
-			WebPort:         c.HTTP.Port,
-			SFTPPort:        c.SSH.Port,
-			MaxUploadBytes:  int64(c.HTTP.MaxUploadMB) << 20,
-			FTPEnable:       c.FTP.Enable,
-			FTPExplicitTLS:  c.FTP.ExplicitTLS,
-			FTPPort:         c.FTP.Port,
-			FTPSEnable:      c.FTPS.Enable,
-			FTPSPort:        c.FTPS.Port,
-			FTPSImplicitEnable: c.FTPSImplicit.Enable,
-			FTPSImplicitPort:   c.FTPSImplicit.Port,
-			FTPPassivePorts: firstNonEmpty3(c.FTPSImplicit.PassivePorts, c.FTPS.PassivePorts, c.FTP.PassivePorts),
-			FTPPublicHost:   firstNonEmpty3(c.FTPSImplicit.PublicHost, c.FTPS.PublicHost, c.FTP.PublicHost),
-			TLSCertPath:     resolvePath(base, c.HTTP.TLS.CertPath),
-			TLSKeyPath:      resolvePath(base, c.HTTP.TLS.KeyPath),
-			SSHHostKeyPath:  resolvePath(base, c.SSH.HostKeyPath),
-			WebDAVEnable:    c.WebDAV.Enable,
-			WebDAVPrefix:    c.WebDAV.Prefix,
-			Logger:          lg,
+			DBPath:               resolvePath(base, c.DB.Path),
+			DataDir:              resolvePath(base, c.DataDir),
+			BindAddr:             c.HTTP.Bind,
+			WebPort:              c.HTTP.Port,
+			SFTPPort:             c.SSH.Port,
+			MaxUploadBytes:       int64(c.HTTP.MaxUploadMB) << 20,
+			FTPEnable:            c.FTP.Enable,
+			FTPExplicitTLS:       c.FTP.ExplicitTLS,
+			FTPDisableActiveMode: c.FTP.DisableActiveMode,
+			FTPPort:              c.FTP.Port,
+			FTPSEnable:           c.FTPS.Enable,
+			FTPSPort:             c.FTPS.Port,
+			FTPSImplicitEnable:   c.FTPSImplicit.Enable,
+			FTPSImplicitPort:     c.FTPSImplicit.Port,
+			FTPPassivePorts:      firstNonEmpty3(c.FTPSImplicit.PassivePorts, c.FTPS.PassivePorts, c.FTP.PassivePorts),
+			FTPPublicHost:        firstNonEmpty3(c.FTPSImplicit.PublicHost, c.FTPS.PublicHost, c.FTP.PublicHost),
+			TLSCertPath:          resolvePath(base, c.HTTP.TLS.CertPath),
+			TLSKeyPath:           resolvePath(base, c.HTTP.TLS.KeyPath),
+			SSHHostKeyPath:       resolvePath(base, c.SSH.HostKeyPath),
+			WebDAVEnable:         c.WebDAV.Enable,
+			WebDAVPrefix:         c.WebDAV.Prefix,
+			UITheme:              c.HTTP.Theme,
+			Logger:               lg,
 		})
 	}
 	lg, _, err := logging.New(logging.Options{Level: opt.LogLevel, DefaultSlog: true})
@@ -119,23 +123,25 @@ func Run(args []string) error {
 	}
 
 	return daemon.Run(context.Background(), daemon.Options{
-		DBPath:          opt.DBPath,
-		DataDir:         opt.DataDir,
-		BindAddr:        opt.BindAddr,
-		WebPort:         opt.WebPort,
-		SFTPPort:        opt.SFTPPort,
-		FTPEnable:       opt.FTPEnable,
-		FTPExplicitTLS:  opt.FTPExplicitTLS,
-		FTPPort:         opt.FTPPort,
-		FTPSEnable:      opt.FTPSEnable,
-		FTPSPort:        opt.FTPSPort,
-		FTPSImplicitEnable: opt.FTPSImplicitEnable,
-		FTPSImplicitPort:   opt.FTPSImplicitPort,
-		FTPPassivePorts: opt.FTPPassivePorts,
-		FTPPublicHost:   opt.FTPPublicHost,
-		WebDAVEnable:    opt.WebDAVEnable,
-		WebDAVPrefix:    opt.WebDAVPrefix,
-		Logger:          lg,
+		DBPath:               opt.DBPath,
+		DataDir:              opt.DataDir,
+		BindAddr:             opt.BindAddr,
+		WebPort:              opt.WebPort,
+		SFTPPort:             opt.SFTPPort,
+		FTPEnable:            opt.FTPEnable,
+		FTPExplicitTLS:       opt.FTPExplicitTLS,
+		FTPDisableActiveMode: opt.FTPDisableActiveMode,
+		FTPPort:              opt.FTPPort,
+		FTPSEnable:           opt.FTPSEnable,
+		FTPSPort:             opt.FTPSPort,
+		FTPSImplicitEnable:   opt.FTPSImplicitEnable,
+		FTPSImplicitPort:     opt.FTPSImplicitPort,
+		FTPPassivePorts:      opt.FTPPassivePorts,
+		FTPPublicHost:        opt.FTPPublicHost,
+		WebDAVEnable:         opt.WebDAVEnable,
+		WebDAVPrefix:         opt.WebDAVPrefix,
+		UITheme:              "simple",
+		Logger:               lg,
 	})
 }
 

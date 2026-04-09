@@ -33,6 +33,7 @@ type HTTPConfig struct {
 	Port        int       `yaml:"port"`
 	MaxUploadMB int       `yaml:"max_upload_mb"`
 	TLS         TLSConfig `yaml:"tls"`
+	Theme       string    `yaml:"theme"`
 }
 
 // SSHConfig holds SSH server settings.
@@ -44,11 +45,12 @@ type SSHConfig struct {
 
 // FTPConfig holds FTP server settings.
 type FTPConfig struct {
-	Enable       bool   `yaml:"enable"`
-	ExplicitTLS  bool   `yaml:"explicit_tls"`
-	Port         int    `yaml:"port"`
-	PassivePorts string `yaml:"passive_ports"`
-	PublicHost   string `yaml:"public_host"`
+	Enable            bool   `yaml:"enable"`
+	ExplicitTLS       bool   `yaml:"explicit_tls"`
+	DisableActiveMode bool   `yaml:"disable_active_mode"`
+	Port              int    `yaml:"port"`
+	PassivePorts      string `yaml:"passive_ports"`
+	PublicHost        string `yaml:"public_host"`
 }
 
 // FTPSConfig holds FTPS server settings.
@@ -126,6 +128,9 @@ func applyDefaults(c *Config) {
 	if c.HTTP.MaxUploadMB == 0 {
 		c.HTTP.MaxUploadMB = 512
 	}
+	if c.HTTP.Theme == "" {
+		c.HTTP.Theme = "simple"
+	}
 	if c.SSH.Bind == "" {
 		c.SSH.Bind = c.HTTP.Bind
 	}
@@ -174,6 +179,9 @@ func validate(c *Config) error {
 	}
 	if c.HTTP.MaxUploadMB < 1 || c.HTTP.MaxUploadMB > 102400 {
 		return errors.New("http.max_upload_mb is invalid")
+	}
+	if c.HTTP.Theme != "simple" && c.HTTP.Theme != "modern" {
+		return errors.New("http.theme must be 'simple' or 'modern'")
 	}
 	if c.SSH.Port <= 0 || c.SSH.Port > 65535 {
 		return errors.New("ssh.port is invalid")

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"filecrusher/internal/fsutil"
 	"filecrusher/internal/quota"
@@ -28,7 +29,7 @@ func (h JailedHandlers) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	}
 	f, err := os.Open(local)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeSFTPError(h.Root, err)
 	}
 	return f, nil
 }
@@ -51,7 +52,7 @@ func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	if pf.Creat {
 		flags |= os.O_CREATE
 		if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
-			return nil, err
+			return nil, sanitizeSFTPError(h.Root, err)
 		}
 	}
 	if pf.Trunc {
@@ -64,7 +65,7 @@ func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	// Do NOT use O_APPEND with WriterAt.
 	f, err := os.OpenFile(local, flags, 0o600)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeSFTPError(h.Root, err)
 	}
 	if h.QuotaBytes <= 0 {
 		return f, nil
@@ -72,7 +73,7 @@ func (h JailedHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	maxFileSize, _, err := quota.MaxFileSize(h.Root, local, h.QuotaBytes)
 	if err != nil {
 		_ = f.Close()
-		return nil, err
+		return nil, sanitizeSFTPError(h.Root, err)
 	}
 	return &quotaWriterAt{f: f, maxFileSize: maxFileSize}, nil
 }
@@ -113,12 +114,12 @@ func (h JailedHandlers) Filecmd(r *sftp.Request) error {
 		flags := r.AttrFlags()
 		if flags.Permissions {
 			if err := os.Chmod(local, attrs.FileMode()); err != nil {
-				return err
+				return sanitizeSFTPError(h.Root, err)
 			}
 		}
 		if flags.Acmodtime {
 			if err := os.Chtimes(local, attrs.AccessTime(), attrs.ModTime()); err != nil {
-				return err
+				return sanitizeSFTPError(h.Root, err)
 			}
 		}
 		if flags.UidGid {
@@ -131,15 +132,15 @@ func (h JailedHandlers) Filecmd(r *sftp.Request) error {
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
+			return sanitizeSFTPError(h.Root, err)
 		}
-		return os.Rename(local, target)
+		return sanitizeSFTPError(h.Root, os.Rename(local, target))
 	case "Rmdir":
-		return os.Remove(local)
+		return sanitizeSFTPError(h.Root, os.Remove(local))
 	case "Mkdir":
-		return os.MkdirAll(local, 0o700)
+		return sanitizeSFTPError(h.Root, os.MkdirAll(local, 0o700))
 	case "Remove":
-		return os.Remove(local)
+		return sanitizeSFTPError(h.Root, os.Remove(local))
 	case "Link", "Symlink":
 		return errors.New("links not supported")
 	default:
@@ -158,7 +159,7 @@ func (h JailedHandlers) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	case "List":
 		ents, err := os.ReadDir(local)
 		if err != nil {
-			return nil, err
+			return nil, sanitizeSFTPError(h.Root, err)
 		}
 		infos := make([]os.FileInfo, 0, len(ents))
 		for _, e := range ents {
@@ -172,7 +173,7 @@ func (h JailedHandlers) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	case "Stat":
 		fi, err := os.Stat(local)
 		if err != nil {
-			return nil, err
+			return nil, sanitizeSFTPError(h.Root, err)
 		}
 		return staticLister([]os.FileInfo{fi}), nil
 	case "Readlink":
@@ -180,6 +181,53 @@ func (h JailedHandlers) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	default:
 		return nil, errors.New("unsupported list")
 	}
+}
+
+func sanitizeSFTPError(root string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		clean := *pathErr
+		clean.Path = stripInternalRootPrefix(pathErr.Path, root)
+		return &clean
+	}
+
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		clean := *linkErr
+		clean.Old = stripInternalRootPrefix(linkErr.Old, root)
+		clean.New = stripInternalRootPrefix(linkErr.New, root)
+		return &clean
+	}
+
+	return err
+}
+
+func stripInternalRootPrefix(path, root string) string {
+	if path == "" || root == "" {
+		return path
+	}
+
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+
+	if path == root {
+		return "/"
+	}
+
+	prefix := root + string(os.PathSeparator)
+	if !strings.HasPrefix(path, prefix) {
+		return path
+	}
+
+	rel := strings.TrimPrefix(path, prefix)
+	if rel == "" {
+		return "/"
+	}
+	return "/" + filepath.ToSlash(rel)
 }
 
 // staticLister wraps a fixed slice of FileInfo for listing.
