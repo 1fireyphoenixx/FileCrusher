@@ -36,7 +36,7 @@ func newDriverError(str string, err error) DriverError {
 }
 
 func (e DriverError) Error() string {
-	return fmt.Sprintf("driver error: %v", e.err)
+	return fmt.Sprintf("driver error: %s: %v", e.str, e.err)
 }
 
 func (e DriverError) Unwrap() error {
