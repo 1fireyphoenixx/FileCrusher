@@ -25,6 +25,9 @@ func ResolveWithinRoot(root, userPath string) (string, error) {
 		return "", err
 	}
 	rootAbs = filepath.Clean(rootAbs)
+	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = filepath.Clean(resolvedRoot)
+	}
 
 	// Force relative paths.
 	p := strings.TrimLeft(userPath, "/\\")

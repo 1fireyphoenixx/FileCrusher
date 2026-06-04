@@ -45,12 +45,18 @@ func MaxFileSize(root, local string, quotaBytes int64) (int64, int64, error) {
 		return 0, 0, err
 	}
 	rootAbs = filepath.Clean(rootAbs)
+	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = filepath.Clean(resolvedRoot)
+	}
 
 	localAbs, err := filepath.Abs(local)
 	if err != nil {
 		return 0, 0, err
 	}
 	localAbs = filepath.Clean(localAbs)
+	if resolvedLocal, err := filepath.EvalSymlinks(localAbs); err == nil {
+		localAbs = filepath.Clean(resolvedLocal)
+	}
 
 	rel, err := filepath.Rel(rootAbs, localAbs)
 	if err != nil {

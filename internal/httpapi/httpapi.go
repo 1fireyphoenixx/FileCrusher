@@ -859,9 +859,8 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid name"})
 			return
 		}
-		parentDir := filepath.Dir(local)
-		newLocal, err := fsutil.ResolveWithinRoot(root, strings.TrimLeft(
-			filepath.ToSlash(filepath.Join(strings.TrimPrefix(parentDir, root), newName)), "/"))
+		virtualParent := pathpkg.Dir("/" + strings.TrimLeft(strings.ReplaceAll(path, "\\", "/"), "/"))
+		newLocal, err := fsutil.ResolveWithinRoot(root, pathpkg.Join(virtualParent, newName))
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsgInvalidPath})
 			return
@@ -1174,12 +1173,18 @@ func safeRemoveWithinRoot(root, local string) error {
 		return err
 	}
 	rootAbs = filepath.Clean(rootAbs)
+	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = filepath.Clean(resolvedRoot)
+	}
 
 	localAbs, err := filepath.Abs(local)
 	if err != nil {
 		return err
 	}
 	localAbs = filepath.Clean(localAbs)
+	if resolvedLocal, err := filepath.EvalSymlinks(localAbs); err == nil {
+		localAbs = filepath.Clean(resolvedLocal)
+	}
 
 	rel, err := filepath.Rel(rootAbs, localAbs)
 	if err != nil {
