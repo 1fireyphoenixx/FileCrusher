@@ -334,3 +334,33 @@ server {
 }
 ```
 </details>
+
+## Running tests
+
+Run the application suite from the repository root:
+
+```bash
+go test -timeout=5m ./...
+go test -race -coverprofile=coverage.out -timeout=5m ./...
+go tool cover -html=coverage.out
+go vet ./...
+```
+
+The HTTP integration tests use the production router, authentication middleware,
+and temporary SQLite databases. WebDAV tests start local HTTPS servers and check
+authentication, file transfers, user isolation, and filesystem escape protection.
+SFTP tests use local SSH connections with host-key verification to check password
+and public-key authentication, protocol permissions, file transfers, user
+isolation, and quota rejection. These integration tests require permission to
+bind loopback sockets. Symlink checks skip when the platform does not permit
+creating symlinks.
+
+The separate FTP library module must be tested explicitly:
+
+```bash
+(cd third_party/ftpserverlib && go test -timeout=5m ./...)
+```
+
+The `test` GitHub Actions workflow runs on pushes and pull requests. It tests the
+application on Linux and Windows, enables race detection on Linux, uploads a
+coverage report, and runs the separate FTP library suite.

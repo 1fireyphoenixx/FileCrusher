@@ -96,6 +96,37 @@ func (s *Server) ListenAndServeTLS() error {
 	if s.CertPath == "" || s.KeyPath == "" {
 		return errors.New("tls cert and key are required")
 	}
+	h, err := s.handler()
+	if err != nil {
+		return err
+	}
+	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
+
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		MaxHeaderBytes:    8 << 10, // 8 KiB
+		ReadHeaderTimeout: 5 * time.Second,
+		// NOTE: Avoid ReadTimeout/WriteTimeout here; this server supports large uploads.
+		// ReadHeaderTimeout + IdleTimeout are still enforced.
+		ReadTimeout:  0,
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CurvePreferences: []tls.CurveID{
+				tls.X25519,
+				tls.CurveP256,
+			},
+		},
+	}
+
+	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
+}
+
+// handler initializes the production routes and middleware before serving requests.
+// Call once per Server, before handling concurrent requests.
+func (s *Server) handler() (http.Handler, error) {
 	if s.Logger == nil {
 		s.Logger = slog.Default()
 	}
@@ -115,7 +146,7 @@ func (s *Server) ListenAndServeTLS() error {
 	}
 	idxBytes, err := webui.StaticFS.ReadFile("static/index.html")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.cachedIndex = []byte(strings.NewReplacer(
 		"{{VERSION}}", "v"+version.Version,
@@ -127,7 +158,7 @@ func (s *Server) ListenAndServeTLS() error {
 	mux := http.NewServeMux()
 	staticFS, err := fs.Sub(webui.StaticFS, "static")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	mux.Handle("/static/", withCacheControl(
 		http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))),
@@ -171,28 +202,7 @@ func (s *Server) ListenAndServeTLS() error {
 	h := withSecurityHeaders(mux, csp)
 	h = s.withRecover(h)
 	h = s.withRequestLog(h)
-	addr := s.BindAddr + ":" + strconv.Itoa(s.Port)
-
-	httpServer := &http.Server{
-		Addr:              addr,
-		Handler:           h,
-		MaxHeaderBytes:    8 << 10, // 8 KiB
-		ReadHeaderTimeout: 5 * time.Second,
-		// NOTE: Avoid ReadTimeout/WriteTimeout here; this server supports large uploads.
-		// ReadHeaderTimeout + IdleTimeout are still enforced.
-		ReadTimeout:  0,
-		WriteTimeout: 0,
-		IdleTimeout:  60 * time.Second,
-		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			CurvePreferences: []tls.CurveID{
-				tls.X25519,
-				tls.CurveP256,
-			},
-		},
-	}
-
-	return httpServer.ListenAndServeTLS(s.CertPath, s.KeyPath)
+	return h, nil
 }
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -611,12 +621,14 @@ func (s *Server) handleAdminUserByID(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
 				return
 			}
+			s.evictSessionsByUserID(userID)
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 		case http.MethodDelete:
 			if err := s.DB.DeleteUser(r.Context(), userID); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsgDeleteFailed})
 				return
 			}
+			s.evictSessionsByUserID(userID)
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errMsgMethodNotAllowed})

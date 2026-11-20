@@ -1,0 +1,52 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with race detector and coverage
+        if: runner.os == 'Linux'
+        run: go test -race -coverprofile=coverage.out -timeout=5m ./...
+      - name: Test on Windows
+        if: runner.os == 'Windows'
+        run: go test -timeout=5m ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build ./cmd/filecrusher
+      - name: Upload coverage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: application-coverage
+          path: coverage.out
+
+  ftp-library:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: third_party/ftpserverlib
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: third_party/ftpserverlib/go.mod
+          cache-dependency-path: third_party/ftpserverlib/go.sum
+      - name: Test separate FTP module
+        run: go test -timeout=5m ./...

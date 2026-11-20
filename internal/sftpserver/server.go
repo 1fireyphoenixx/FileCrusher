@@ -17,8 +17,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-
-
 const minAuthRejectDelay = 250 * time.Millisecond
 
 var errInvalidCredentials = errors.New("invalid credentials")
@@ -53,41 +51,7 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		return err
 	}
 
-	conf := &ssh.ServerConfig{
-		ServerVersion: "SSH-2.0-filecrusher", //set banner for ssh
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			start := time.Now()
-			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
-			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
-				auth.DummyVerify(string(pass))
-				return rejectAuth(start)
-			}
-			okPw, err := auth.VerifyPassword(string(pass), u.PassHash)
-			if err != nil || !okPw {
-				return rejectAuth(start)
-			}
-			return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
-		},
-		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			start := time.Now()
-			u, ok, err := opt.DB.GetUserByUsername(ctx, c.User())
-			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
-				return rejectAuth(start)
-			}
-			fp := ssh.FingerprintSHA256(key)
-			keys, err := opt.DB.ListSSHKeysForUser(ctx, u.ID)
-			if err != nil {
-				return rejectAuth(start)
-			}
-			for _, k := range keys {
-				if k.Fingerprint == fp {
-					return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
-				}
-			}
-			return rejectAuth(start)
-		},
-	}
-	conf.AddHostKey(hostSigner)
+	conf := serverConfig(ctx, opt.DB, hostSigner)
 
 	ln, err := net.Listen("tcp", opt.Addr)
 	if err != nil {
@@ -114,6 +78,47 @@ func ListenAndServe(ctx context.Context, opt Options) error {
 		lg.Debug("ssh connection accepted", "remote", c.RemoteAddr().String())
 		go handleConn(opt.DB, conf, c, lg)
 	}
+}
+
+// serverConfig builds the shared SSH authentication policy.
+func serverConfig(ctx context.Context, d *db.DB, hostSigner ssh.Signer) *ssh.ServerConfig {
+	conf := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-filecrusher", //set banner for ssh
+		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+			start := time.Now()
+			u, ok, err := d.GetUserByUsername(ctx, c.User())
+			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
+				auth.DummyVerify(string(pass))
+				return rejectAuth(start)
+			}
+			okPw, err := auth.VerifyPassword(string(pass), u.PassHash)
+			if err != nil || !okPw {
+				return rejectAuth(start)
+			}
+			return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
+		},
+		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			start := time.Now()
+			u, ok, err := d.GetUserByUsername(ctx, c.User())
+			if err != nil || !ok || !u.Enabled || (!u.AllowSFTP && !u.AllowSCP) {
+				return rejectAuth(start)
+			}
+			fp := ssh.FingerprintSHA256(key)
+			keys, err := d.ListSSHKeysForUser(ctx, u.ID)
+			if err != nil {
+				return rejectAuth(start)
+			}
+			for _, k := range keys {
+				if k.Fingerprint == fp {
+					return &ssh.Permissions{Extensions: map[string]string{"user_id": intToString(u.ID)}}, nil
+				}
+			}
+			return rejectAuth(start)
+		},
+	}
+	conf.AddHostKey(hostSigner)
+
+	return conf
 }
 
 // handleConn completes the SSH handshake and serves channels.

@@ -28,7 +28,7 @@ function loadModernAssets() {
     document.head.appendChild(fontLink);
   }
 
-  const lucideSrc = 'https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js';
+  const lucideSrc = 'https://unpkg.com/lucide@1.76.0/dist/umd/lucide.min.js';
   if (!document.querySelector(`script[src="${lucideSrc}"]`)) {
     const lucideScript = document.createElement('script');
     lucideScript.src = lucideSrc;
